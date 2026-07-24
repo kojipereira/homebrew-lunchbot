@@ -102,28 +102,42 @@ def delete_cart(cart_uuid: str) -> None:
 Candidate = tuple  # (cart_uuid, items, line_items, total_cents, fulfillment, budget, team_id)
 
 
-def prepare_candidate(cfg: Config, fav: Favorite) -> Candidate | None:
-    """Cleanup orphans → reorder → preview (force pickup + work benefits) →
-    guards. Returns the candidate tuple or None; always deletes its own cart on
-    a guard failure so we never leak carts."""
-    cleanup_carts_at_store(fav.store_id)
+def modes_for(cfg: Config) -> list[str]:
+    """Fulfillment modes to attempt, in preference order. 'either' tries pickup
+    first (cheaper, no tip) then delivery."""
+    if cfg.fulfillment == "either":
+        return ["pickup", "delivery"]
+    return [cfg.fulfillment]
 
+
+def prepare_candidate(cfg: Config, fav: Favorite) -> Candidate | None:
+    """Cleanup orphans → try each allowed fulfillment mode (reorder → preview →
+    guards) and return the first candidate that passes. Always deletes its own
+    cart on failure so we never leak carts. None if nothing passes."""
+    cleanup_carts_at_store(fav.store_id)
+    for mode in modes_for(cfg):
+        cand = _try_mode(cfg, fav, mode)
+        if cand:
+            return cand
+    return None
+
+
+def _try_mode(cfg: Config, fav: Favorite, mode: str) -> Candidate | None:
     reorder = dd("order", "reorder", "--order-uuid", fav.reorder_from)
     if not reorder.get("success", False):
         logging.warning("reorder failed for %s: %s", fav.store, reorder.get("fail_reason"))
         return None
     cart_uuid = reorder["cart_uuid"]
 
-    preview_args = ["order", "preview", "--cart-uuid", cart_uuid, "--fulfillment", cfg.fulfillment]
+    preview_args = ["order", "preview", "--cart-uuid", cart_uuid, "--fulfillment", mode]
     if cfg.work_benefits:
         preview_args.append("--include-work-benefits")
     preview = dd(*preview_args)
 
     fulfillment = extract_fulfillment(preview)
-    expected = cfg.fulfillment.upper()
+    expected = mode.upper()
     if fulfillment != expected:
-        logging.warning("%s: fulfillment mismatch (wanted=%s, got=%s) — skipping",
-                        fav.store, expected, fulfillment)
+        logging.info("%s: %s unavailable (got %s)", fav.store, mode, fulfillment or "none")
         delete_cart(cart_uuid)
         return None
 
@@ -169,9 +183,11 @@ def submit_and_record(cfg: Config, state: dict, fav: Favorite, cart_uuid: str,
                       total_cents: int, fulfillment: str, budget: dict | None,
                       team_id: str, pool_idx: int, pool_len: int, today_iso: str,
                       remember_cursor: bool) -> None:
+    # Use the mode actually resolved in the preview (PICKUP/DELIVERY), not
+    # cfg.fulfillment — which may be "either".
     tip = 0 if fulfillment == "PICKUP" else cfg.default_tip_cents
     submit_args = ["order", "submit", "--cart-uuid", cart_uuid,
-                   "--fulfillment", cfg.fulfillment, "--tip-cents", str(tip), "--yes"]
+                   "--fulfillment", fulfillment.lower(), "--tip-cents", str(tip), "--yes"]
     if cfg.work_benefits:
         if not (budget and team_id):
             show_alert("Lunchbot: submit blocked",
