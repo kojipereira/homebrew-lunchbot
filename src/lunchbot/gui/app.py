@@ -8,6 +8,7 @@ testable) on a plain stdlib interpreter that has no rumps installed.
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 import threading
@@ -22,7 +23,9 @@ try:
 except ImportError:  # allows `import lunchbot.gui.app` without the dep
     rumps = None
 
-APP_TITLE = "🥪"
+APP_TITLE = "🥪"  # emoji fallback if the Lucide SVG can't be loaded
+# Lucide "sandwich" icon, rendered by NSImage at runtime as a menu-bar template.
+ICON_PATH = os.path.join(os.path.dirname(__file__), "icons", "sandwich.svg")
 DAY_NAMES = {1: "Mon", 2: "Tue", 3: "Wed", 4: "Thu", 5: "Fri", 6: "Sat", 7: "Sun"}
 
 
@@ -80,7 +83,10 @@ def main() -> int:
 
     class LunchbotApp(rumps.App):
         def __init__(self):
-            super().__init__("Lunchbot", title=APP_TITLE, quit_button=None)
+            if os.path.exists(ICON_PATH):
+                super().__init__("Lunchbot", icon=ICON_PATH, template=True, quit_button=None)
+            else:
+                super().__init__("Lunchbot", title=APP_TITLE, quit_button=None)
             self.status_item = rumps.MenuItem("…")
             self.status_item.set_callback(None)  # non-clickable status line
             self.order_menu = rumps.MenuItem("Order now")
@@ -127,7 +133,10 @@ def main() -> int:
             self._rebuild_order_menu()
 
         def _rebuild_order_menu(self):
-            self.order_menu.clear()
+            # A rumps submenu has no backing NSMenu until its first item is
+            # added, so clear() would raise on the initial build — guard it.
+            if getattr(self.order_menu, "_menu", None) is not None:
+                self.order_menu.clear()
             try:
                 cfg = load_config()
                 favs = [f for f in cfg.favorites if favorite_eligible(f.diet, cfg.diet)]
