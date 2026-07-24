@@ -99,6 +99,12 @@ def main() -> int:
             ]
             self.refresh(None)
             rumps.Timer(self.refresh, 60).start()
+            # First run: no config yet → open Preferences so setup is obvious
+            # instead of leaving the user staring at a "Not set up" menu.
+            try:
+                load_config()
+            except ConfigError:
+                _spawn_prefs()
 
         # ---- refresh -----------------------------------------------------
         def refresh(self, _):
