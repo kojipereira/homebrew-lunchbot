@@ -99,12 +99,25 @@ def main() -> int:
             ]
             self.refresh(None)
             rumps.Timer(self.refresh, 60).start()
+            # Force menu-bar-accessory mode shortly after the run loop is up, so
+            # the 🥪 icon reliably appears top-right with no Dock icon — however
+            # the process was launched (double-click app, launchd, or CLI).
+            self._policy_timer = rumps.Timer(self._ensure_accessory, 0.3)
+            self._policy_timer.start()
             # First run: no config yet → open Preferences so setup is obvious
             # instead of leaving the user staring at a "Not set up" menu.
             try:
                 load_config()
             except ConfigError:
                 _spawn_prefs()
+
+        def _ensure_accessory(self, timer):
+            try:
+                from AppKit import NSApp, NSApplicationActivationPolicyAccessory
+                NSApp().setActivationPolicy_(NSApplicationActivationPolicyAccessory)
+            except Exception:  # noqa: BLE001 — cosmetic; never block the app
+                pass
+            timer.stop()
 
         # ---- refresh -----------------------------------------------------
         def refresh(self, _):
