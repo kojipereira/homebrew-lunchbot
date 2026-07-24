@@ -1,0 +1,39 @@
+# lunchbot config example. In practice `lunchbot setup` generates this for you
+# from your own DoorDash order history — you rarely edit it by hand.
+# Mutable data (skip_dates, rotation cursor, order log) lives in state.json.
+
+diet = "vegan"              # vegan | vegetarian | omnivore
+fulfillment = "pickup"      # pickup | delivery
+price_cap_cents = 2500      # skip any order whose total exceeds this
+dry_run = false             # true = preview only, never submit
+work_benefits = true        # require a company budget or the order fails
+default_tip_cents = 0
+lunch_time = "12:00"        # HH:MM local; lead times count back from here
+default_expense_code = ""   # only if your budget requires one
+default_expense_note = ""   # only if your budget requires one
+delivery_address_id = ""    # from `dd-cli address list`; set during setup
+delivery_address = ""       # display only (e.g. "123 Main St, Anytown")
+weekdays = [1, 2, 4, 5]     # 1=Mon .. 7=Sun (this example skips Wednesday)
+
+[desktop_confirm]
+enabled = true
+timeout_seconds = 300
+on_timeout = "abort"        # abort | approve
+
+# A favorite is eligible when its `diet` is at least as strict as yours:
+# a vegan order suits a vegetarian/omnivore; a vegetarian order suits an omnivore.
+# NOTE: store_id and reorder_from are placeholders. `lunchbot setup` fills these
+# in from YOUR own DoorDash order history — don't copy someone else's.
+[[favorites]]
+store = "Example Noodle Bar"
+store_id = "00000000"
+reorder_from = "00000000-0000-0000-0000-000000000000"
+diet = "vegan"
+lead_minutes = 15           # fires at 11:45 for a 12:00 lunch
+
+[[favorites]]
+store = "Example Salad Co"
+store_id = "11111111"
+reorder_from = "11111111-1111-1111-1111-111111111111"
+diet = "vegan"
+lead_minutes = 60           # slower kitchen → order at 11:00

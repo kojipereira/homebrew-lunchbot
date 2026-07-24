@@ -1,0 +1,69 @@
+"""Generate a minimal, double-clickable Lunchbot.app wrapper.
+
+Not a py2app/notarized bundle — just the smallest valid .app: an Info.plist
+plus a shell launcher that execs the menu-bar app. Double-clickable from Finder,
+draggable to the Dock/Desktop. Unsigned, so the first launch needs a one-time
+right-click → Open (Gatekeeper). Stdlib-only; imports no GUI deps.
+"""
+
+from __future__ import annotations
+
+import plistlib
+
+from . import paths
+from .__init__ import __version__
+
+APP_NAME = "Lunchbot"
+BUNDLE_ID = "com.lunchbot.app"
+DEFAULT_APP_DIR = paths.HOME / "Applications"
+
+# Resolve the GUI launcher at click-time (brew symlink first, then dev install),
+# falling back to `lunchbot gui`, and finally a helpful alert if nothing's found.
+_LAUNCHER_SCRIPT = """\
+#!/bin/sh
+for c in /opt/homebrew/bin/lunchbot-gui "$HOME/.local/bin/lunchbot-gui"; do
+  [ -x "$c" ] && exec "$c"
+done
+if command -v lunchbot-gui >/dev/null 2>&1; then exec lunchbot-gui; fi
+if command -v lunchbot >/dev/null 2>&1; then exec lunchbot gui; fi
+exec /usr/bin/osascript -e 'display alert "Lunchbot" message "lunchbot is not on your PATH. Install it (brew install ... / ./install.sh) and try again."'
+"""
+
+
+def _info_plist() -> bytes:
+    return plistlib.dumps({
+        "CFBundleName": APP_NAME,
+        "CFBundleDisplayName": APP_NAME,
+        "CFBundleIdentifier": BUNDLE_ID,
+        "CFBundleExecutable": APP_NAME,
+        "CFBundleVersion": __version__,
+        "CFBundleShortVersionString": __version__,
+        "CFBundlePackageType": "APPL",
+        # Menu-bar accessory: no Dock icon while running, still double-clickable.
+        "LSUIElement": True,
+        "LSMinimumSystemVersion": "11.0",
+    })
+
+
+def install_app(app_dir=None) -> "paths.Path":
+    """Create <app_dir>/Lunchbot.app and return its path. Overwrites any prior
+    copy so it's safe to re-run after an upgrade."""
+    base = (app_dir or DEFAULT_APP_DIR)
+    app = base / f"{APP_NAME}.app"
+    macos = app / "Contents" / "MacOS"
+    macos.mkdir(parents=True, exist_ok=True)
+    (app / "Contents" / "Info.plist").write_bytes(_info_plist())
+    launcher = macos / APP_NAME
+    launcher.write_text(_LAUNCHER_SCRIPT)
+    launcher.chmod(0o755)
+    return app
+
+
+def uninstall_app(app_dir=None) -> bool:
+    """Remove Lunchbot.app. Returns True if it existed."""
+    import shutil
+    app = (app_dir or DEFAULT_APP_DIR) / f"{APP_NAME}.app"
+    if app.exists():
+        shutil.rmtree(app)
+        return True
+    return False
