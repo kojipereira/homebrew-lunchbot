@@ -2,36 +2,30 @@ class Lunchbot < Formula
   include Language::Python::Virtualenv
 
   desc "Auto-order your weekday lunch on DoorDash, with a Mac menu-bar app"
-  homepage "https://github.com/YOUR-ORG/lunchbot"
-  # Point url at the GitHub Release tarball produced by build.sh, and paste its
-  # sha256 (shasum -a 256 dist/lunchbot-<version>.tar.gz).
-  url "https://github.com/YOUR-ORG/lunchbot/releases/download/v1.1.0/lunchbot-1.1.0.tar.gz"
-  sha256 "REPLACE_WITH_TARBALL_SHA256"
+  homepage "https://github.com/kojipereira/homebrew-lunchbot"
+  url "https://github.com/kojipereira/homebrew-lunchbot/releases/download/v1.1.0/lunchbot-1.1.0.tar.gz"
+  sha256 "b540570697cb6066ce69e4edb20f1bd243d15b24e617115c426a905416385f5e"
   license "MIT"
 
   depends_on "python@3.13"
   depends_on "python-tk@3.13" # the preferences window uses Tk
+  depends_on arch: :arm64     # dd-cli (user-supplied) is arm64-only
 
-  # Apple Silicon only — dd-cli (which the user installs separately) is arm64-only.
-  depends_on arch: :arm64
-
-  # Menu-bar deps. Regenerate exact versions + sha256 with:
-  #   brew update-python-resources ./Formula/lunchbot.rb
-  # (declares rumps + its pyobjc transitive deps for offline venv install).
-  # Per policy: pin versions; do not adopt a release younger than 3 days.
+  # Menu-bar deps (rumps + its pyobjc runtime). Pinned to long-stable releases.
+  # Refresh with:  brew update-python-resources ./Formula/lunchbot.rb
   resource "pyobjc-core" do
-    url "https://files.pythonhosted.org/packages/source/p/pyobjc-core/pyobjc_core-10.3.1.tar.gz"
-    sha256 "REPLACE_ME"
+    url "https://files.pythonhosted.org/packages/b4/b1/729f7458a63758bd21716648a8abcd9a0c8f2d2e9897763c8a1a1c7fd31b/pyobjc_core-12.2.1.tar.gz"
+    sha256 "7a7b9b018402342cf32bf1956366896350fbe5c0478cb3ef59778f77abed7f07"
   end
 
   resource "pyobjc-framework-Cocoa" do
-    url "https://files.pythonhosted.org/packages/source/p/pyobjc-framework-Cocoa/pyobjc_framework_Cocoa-10.3.1.tar.gz"
-    sha256 "REPLACE_ME"
+    url "https://files.pythonhosted.org/packages/51/34/fbe38a204643aa4e1b91391cdce07a34da565a69171ebcad08de7438a556/pyobjc_framework_cocoa-12.2.1.tar.gz"
+    sha256 "b94b37fe5730e5ae1fb0052912cd174e6ec329b0bfba4a012ae5db1014b5864b"
   end
 
   resource "rumps" do
-    url "https://files.pythonhosted.org/packages/source/r/rumps/rumps-0.4.0.tar.gz"
-    sha256 "REPLACE_ME"
+    url "https://files.pythonhosted.org/packages/b2/e2/2e6a47951290bd1a2831dcc50aec4b25d104c0cf00e8b7868cbd29cf3bfe/rumps-0.4.0.tar.gz"
+    sha256 "17fb33c21b54b1e25db0d71d1d793dc19dc3c0b7d8c79dc6d833d0cffc8b1596"
   end
 
   def install
@@ -52,7 +46,7 @@ class Lunchbot < Formula
         lunchbot install-gui-agent     # auto-start the menu-bar app at login
         lunchbot install-app           # a double-clickable Lunchbot.app in ~/Applications
 
-      (First launch of Lunchbot.app: right-click → Open once to clear Gatekeeper.)
+      (First launch of Lunchbot.app: right-click -> Open once to clear Gatekeeper.)
 
       Health check any time:  lunchbot doctor
     EOS
