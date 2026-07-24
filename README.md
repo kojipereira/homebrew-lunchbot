@@ -19,8 +19,10 @@ machine.
 ## Install
 
 ```sh
-brew install YOUR-ORG/lunchbot/lunchbot
+brew install kojipereira/lunchbot/lunchbot
 ```
+
+(That's shorthand for `brew tap kojipereira/lunchbot && brew install lunchbot`.)
 
 Then get dd-cli (below), and either run the terminal wizard or open the app:
 
@@ -140,8 +142,15 @@ persist unless you remove them.
   (the menu-bar app). Both target the stable `/opt/homebrew/bin` symlinks, so
   `brew upgrade` never rewrites a plist.
 - Config is TOML via `tomllib`; plists are generated with `plistlib`.
-- Distribution is a Homebrew tap; `build.sh` produces the release tarball and
-  prints the sha256 + publishing steps. Set the dd-cli link via `LUNCHBOT_DDCLI_URL`
-  (or edit `DDCLI_GET_URL` in `src/lunchbot/ddcli.py`) and the tap owner in
-  `Formula/lunchbot.rb` before publishing.
+- Distribution is a self-contained Homebrew tap at
+  [`kojipereira/homebrew-lunchbot`](https://github.com/kojipereira/homebrew-lunchbot):
+  the source, `Formula/lunchbot.rb`, and the release live in one repo.
+- Cutting a release: bump `VERSION` + `pyproject.toml`, run `./build.sh`, then
+  `gh release create vX.Y.Z dist/lunchbot-X.Y.Z.tar.gz`, and update the formula's
+  `url` + `sha256` (build.sh prints the sha256). Refresh the rumps/pyobjc resource
+  pins with `brew update-python-resources ./Formula/lunchbot.rb`.
+- Point users to dd-cli via `LUNCHBOT_DDCLI_URL` (or edit `DDCLI_GET_URL` in
+  `src/lunchbot/ddcli.py`).
+- **The tap repo must be public** for others to `brew install` it — a private
+  release asset needs a GitHub token.
 - `install.sh`/`uninstall.sh` remain a non-Homebrew fallback for dev machines.
