@@ -18,18 +18,26 @@ machine.
 
 ## Install
 
+### Option A — download & double-click (no terminal)
+
+1. Go to the [**Releases**](https://github.com/kojipereira/homebrew-lunchbot/releases)
+   page and download **`Lunchbot-Installer-<version>.tar.gz`**.
+2. Double-click it in Finder to expand it into a **`Lunchbot Installer`** folder.
+3. Double-click **`Install Lunchbot.command`** inside.
+   (If macOS says it can't be opened, right-click it → **Open** → **Open** — it's
+   unsigned. One time only.)
+
+That installs Lunchbot, adds the 🥪 menu-bar app + a clickable `Lunchbot.app`, and
+opens Preferences so you can pick your restaurants. To remove it later, double-click
+**`Uninstall Lunchbot.command`** in the same folder.
+
+### Option B — Homebrew (terminal)
+
 ```sh
 brew install kojipereira/lunchbot/lunchbot
 ```
 
-(That's shorthand for `brew tap kojipereira/lunchbot && brew install lunchbot`.)
-
-**Prefer not to touch the terminal?** Double-click **`Install Lunchbot.command`**
-from this repo — it runs the brew install, registers the menu-bar app + a
-clickable `Lunchbot.app`, and opens Preferences. (First run may need a
-right-click → **Open** to clear Gatekeeper.)
-
-Then get dd-cli (below), and either run the terminal wizard or open the app:
+(Shorthand for `brew tap kojipereira/lunchbot && brew install lunchbot`.) Then:
 
 ```sh
 lunchbot setup                 # terminal wizard, or…
@@ -37,9 +45,8 @@ lunchbot install-gui-agent     # menu-bar app, auto-starts at login
 lunchbot install-app           # a double-clickable Lunchbot.app in ~/Applications
 ```
 
-`install-app` drops a **Lunchbot.app** in `~/Applications` you can double-click,
-drag to the Dock, or keep on the Desktop. It's unsigned, so the first launch
-needs a one-time right-click → **Open** to clear Gatekeeper.
+Either way you'll need dd-cli (below). `install-app` drops a **Lunchbot.app** in
+`~/Applications` you can double-click, drag to the Dock, or keep on the Desktop.
 
 ### Getting dd-cli
 
@@ -131,6 +138,9 @@ Run `lunchbot doctor` first — it checks all of the below.
 
 ## Uninstall
 
+Double-click **`Uninstall Lunchbot.command`** (from the installer folder), or in a
+terminal:
+
 ```sh
 lunchbot uninstall-agent && lunchbot uninstall-gui-agent
 brew uninstall lunchbot
@@ -151,10 +161,15 @@ persist unless you remove them.
   [`kojipereira/homebrew-lunchbot`](https://github.com/kojipereira/homebrew-lunchbot):
   the source, `Formula/lunchbot.rb`, and the release live in one repo.
 - Cutting a release is one command: **`./release.sh X.Y.Z`** — it bumps the
-  version everywhere, builds the tarball, creates the GitHub release, patches the
-  formula's `url` + `sha256`, and opens a PR (merge it to publish). Refresh the
-  rumps/pyobjc pins with `brew update-python-resources ./Formula/lunchbot.rb` when
-  those change.
+  version everywhere, builds both tarballs, creates the GitHub release (uploading
+  the pip-installable source tarball *and* the `Lunchbot-Installer-<ver>.tar.gz`
+  double-click bundle), patches the formula's `url` + `sha256`, and opens a PR
+  (merge it to publish). Refresh the rumps/pyobjc pins with
+  `brew update-python-resources ./Formula/lunchbot.rb` when those change.
+- `build.sh` emits two artifacts: `lunchbot-<ver>.tar.gz` (source, consumed by the
+  formula) and `Lunchbot-Installer-<ver>.tar.gz` (the double-click installer for
+  Option A). The installer's `.command` files shell out to `brew`, so Homebrew and
+  a public tap are still required.
 - Point users to dd-cli via `LUNCHBOT_DDCLI_URL` (or edit `DDCLI_GET_URL` in
   `src/lunchbot/ddcli.py`).
 - **The tap repo must be public** for others to `brew install` it — a private
