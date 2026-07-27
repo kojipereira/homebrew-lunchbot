@@ -66,13 +66,19 @@ class DesktopConfirmCfg:
     on_timeout: str = "abort"   # "abort" | "approve"
 
 
-FULFILLMENT_CHOICES = ("pickup", "delivery")
+# "either" = allow both; at order time lunchbot picks whatever the restaurant
+# supports, preferring pickup (cheaper, no tip) when both are available.
+FULFILLMENT_CHOICES = ("pickup", "delivery", "either")
+
+# Named lead-time presets (minutes before lunch to fire). User-editable; a
+# favorite stores the resolved minutes, so runtime never needs these.
+DEFAULT_LEAD_TIERS = {"fast": 15, "normal": 30, "slow": 60}
 
 
 @dataclass
 class Config:
     diet: str = "omnivore"      # the user's own dietary preference
-    fulfillment: str = "pickup" # pickup | delivery
+    fulfillment: str = "pickup" # pickup | delivery | either
     price_cap_cents: int = 2500
     dry_run: bool = False
     work_benefits: bool = False
@@ -83,6 +89,7 @@ class Config:
     delivery_address_id: str = ""
     delivery_address: str = ""  # printable_address for display; address_id is the key
     weekdays: list[int] = field(default_factory=lambda: [1, 2, 3, 4, 5])  # 1=Mon..7=Sun
+    lead_tiers: dict = field(default_factory=lambda: dict(DEFAULT_LEAD_TIERS))
     favorites: list[Favorite] = field(default_factory=list)
     desktop_confirm: DesktopConfirmCfg = field(default_factory=DesktopConfirmCfg)
 
@@ -158,6 +165,15 @@ def _build_and_validate(raw: dict, p) -> Config:
         on_timeout=on_timeout,
     )
 
+    lt_raw = raw.get("lead_tiers", {}) or {}
+    lead_tiers = dict(DEFAULT_LEAD_TIERS)
+    for name in DEFAULT_LEAD_TIERS:
+        if name in lt_raw:
+            try:
+                lead_tiers[name] = int(lt_raw[name])
+            except (TypeError, ValueError):
+                raise ConfigError(f"{p}: lead_tiers.{name} must be an integer")
+
     favs_raw = raw.get("favorites", []) or []
     if not favs_raw:
         raise ConfigError(f"{p}: at least one [[favorites]] entry is required")
@@ -190,6 +206,7 @@ def _build_and_validate(raw: dict, p) -> Config:
         delivery_address_id=str(raw.get("delivery_address_id", "")),
         delivery_address=str(raw.get("delivery_address", "")),
         weekdays=[int(d) for d in weekdays],
+        lead_tiers=lead_tiers,
         favorites=favorites,
         desktop_confirm=dc,
     )
@@ -214,7 +231,7 @@ def dump_config(cfg: Config) -> str:
     lines.append("# Mutable data (skip_dates, rotation) lives in state.json, not here.")
     lines.append("")
     lines.append(f"diet = {_toml_str(cfg.diet)}              # vegan | vegetarian | omnivore")
-    lines.append(f"fulfillment = {_toml_str(cfg.fulfillment)}  # pickup | delivery")
+    lines.append(f"fulfillment = {_toml_str(cfg.fulfillment)}  # pickup | delivery | either")
     lines.append(f"price_cap_cents = {cfg.price_cap_cents}   # skip any order over this")
     lines.append(f"dry_run = {_toml_bool(cfg.dry_run)}       # true = preview only, never submit")
     lines.append(f"work_benefits = {_toml_bool(cfg.work_benefits)}  # require a company budget or fail")
@@ -225,6 +242,10 @@ def dump_config(cfg: Config) -> str:
     lines.append(f"delivery_address_id = {_toml_str(cfg.delivery_address_id)}")
     lines.append(f"delivery_address = {_toml_str(cfg.delivery_address)}  # display only; address_id is the key")
     lines.append(f"weekdays = [{', '.join(str(d) for d in cfg.weekdays)}]  # 1=Mon .. 7=Sun")
+    lines.append("")
+    lines.append("[lead_tiers]              # minutes before lunch each preset fires")
+    for name in ("fast", "normal", "slow"):
+        lines.append(f"{name} = {int(cfg.lead_tiers.get(name, DEFAULT_LEAD_TIERS[name]))}")
     lines.append("")
     lines.append("[desktop_confirm]")
     lines.append(f"enabled = {_toml_bool(cfg.desktop_confirm.enabled)}")

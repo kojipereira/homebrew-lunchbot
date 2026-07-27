@@ -23,8 +23,8 @@ def check(cond, msg):
 
 def test_roundtrip():
     cfg = C.Config(
-        diet="vegan", price_cap_cents=2500, work_benefits=True, lunch_time="12:00",
-        weekdays=[1, 2, 4, 5],
+        diet="vegan", fulfillment="either", price_cap_cents=2500, work_benefits=True,
+        lunch_time="12:00", weekdays=[1, 2, 4, 5], lead_tiers={"fast": 10, "normal": 25, "slow": 45},
         favorites=[
             # Apostrophe in the store name + a bareword-looking UUID: the two
             # values the plan calls out as breaking a naive TOML writer.
@@ -45,6 +45,8 @@ def test_roundtrip():
     check(back.favorites[1].store == 'Weird "Quoted" Cafe', "embedded quotes round-trip")
     check(back.diet == "vegan" and back.weekdays == [1, 2, 4, 5], "scalars round-trip")
     check(back.favorites[1].lead_minutes == 60, "lead_minutes round-trips")
+    check(back.fulfillment == "either", "fulfillment=either round-trips")
+    check(back.lead_tiers == {"fast": 10, "normal": 25, "slow": 45}, "lead_tiers round-trip")
 
 
 def test_diet_scan():

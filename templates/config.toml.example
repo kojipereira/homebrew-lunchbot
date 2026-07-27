@@ -3,7 +3,7 @@
 # Mutable data (skip_dates, rotation cursor, order log) lives in state.json.
 
 diet = "vegan"              # vegan | vegetarian | omnivore
-fulfillment = "pickup"      # pickup | delivery
+fulfillment = "either"      # pickup | delivery | either (both → best per restaurant)
 price_cap_cents = 2500      # skip any order whose total exceeds this
 dry_run = false             # true = preview only, never submit
 work_benefits = true        # require a company budget or the order fails
@@ -14,6 +14,11 @@ default_expense_note = ""   # only if your budget requires one
 delivery_address_id = ""    # from `dd-cli address list`; set during setup
 delivery_address = ""       # display only (e.g. "123 Main St, Anytown")
 weekdays = [1, 2, 4, 5]     # 1=Mon .. 7=Sun (this example skips Wednesday)
+
+[lead_tiers]                # minutes before lunch each preset fires
+fast = 15
+normal = 30
+slow = 60
 
 [desktop_confirm]
 enabled = true

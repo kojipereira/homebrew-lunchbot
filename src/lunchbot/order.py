@@ -13,7 +13,7 @@ from . import config as cfgmod
 from .config import Config, Favorite
 from .ddcli import dd
 from .state import save_state
-from .ui import show_alert
+from .ui import ask_retry, show_alert
 
 
 # ---- preview extractors -----------------------------------------------------
@@ -36,6 +36,15 @@ def extract_fulfillment(preview: dict) -> str:
         return preview["quote"]["store_order_cart"]["fulfillment_type"].upper()
     except (KeyError, TypeError):
         return ""
+
+
+def store_offers_pickup(preview: dict):
+    """DoorDash's own 'is pickup viable here' flag (False when the store is out
+    of pickup range, i.e. too far). None if the field is absent."""
+    try:
+        return preview["quote"]["store_order_cart"]["store"]["offers_pickup"]
+    except (KeyError, TypeError):
+        return None
 
 
 def extract_line_items(preview: dict) -> list[tuple[str, str]]:
@@ -102,28 +111,50 @@ def delete_cart(cart_uuid: str) -> None:
 Candidate = tuple  # (cart_uuid, items, line_items, total_cents, fulfillment, budget, team_id)
 
 
-def prepare_candidate(cfg: Config, fav: Favorite) -> Candidate | None:
-    """Cleanup orphans → reorder → preview (force pickup + work benefits) →
-    guards. Returns the candidate tuple or None; always deletes its own cart on
-    a guard failure so we never leak carts."""
-    cleanup_carts_at_store(fav.store_id)
+def modes_for(cfg: Config) -> list[str]:
+    """Fulfillment modes to attempt, in preference order. 'either' tries pickup
+    first (cheaper, no tip) then delivery."""
+    if cfg.fulfillment == "either":
+        return ["pickup", "delivery"]
+    return [cfg.fulfillment]
 
+
+def prepare_candidate(cfg: Config, fav: Favorite) -> Candidate | None:
+    """Cleanup orphans → try each allowed fulfillment mode (reorder → preview →
+    guards) and return the first candidate that passes. Always deletes its own
+    cart on failure so we never leak carts. None if nothing passes."""
+    cleanup_carts_at_store(fav.store_id)
+    for mode in modes_for(cfg):
+        cand = _try_mode(cfg, fav, mode)
+        if cand:
+            return cand
+    return None
+
+
+def _try_mode(cfg: Config, fav: Favorite, mode: str) -> Candidate | None:
     reorder = dd("order", "reorder", "--order-uuid", fav.reorder_from)
     if not reorder.get("success", False):
         logging.warning("reorder failed for %s: %s", fav.store, reorder.get("fail_reason"))
         return None
     cart_uuid = reorder["cart_uuid"]
 
-    preview_args = ["order", "preview", "--cart-uuid", cart_uuid, "--fulfillment", cfg.fulfillment]
+    preview_args = ["order", "preview", "--cart-uuid", cart_uuid, "--fulfillment", mode]
     if cfg.work_benefits:
         preview_args.append("--include-work-benefits")
     preview = dd(*preview_args)
 
     fulfillment = extract_fulfillment(preview)
-    expected = cfg.fulfillment.upper()
+    expected = mode.upper()
     if fulfillment != expected:
-        logging.warning("%s: fulfillment mismatch (wanted=%s, got=%s) — skipping",
-                        fav.store, expected, fulfillment)
+        logging.info("%s: %s unavailable (got %s)", fav.store, mode, fulfillment or "none")
+        delete_cart(cart_uuid)
+        return None
+
+    # Forcing --fulfillment pickup can echo PICKUP even for a store that's out of
+    # pickup range; trust DoorDash's own flag. With "either" this falls through
+    # to a delivery attempt (i.e. too far → delivery).
+    if mode == "pickup" and store_offers_pickup(preview) is False:
+        logging.info("%s: pickup not offered (too far) — skipping pickup", fav.store)
         delete_cart(cart_uuid)
         return None
 
@@ -169,9 +200,11 @@ def submit_and_record(cfg: Config, state: dict, fav: Favorite, cart_uuid: str,
                       total_cents: int, fulfillment: str, budget: dict | None,
                       team_id: str, pool_idx: int, pool_len: int, today_iso: str,
                       remember_cursor: bool) -> None:
+    # Use the mode actually resolved in the preview (PICKUP/DELIVERY), not
+    # cfg.fulfillment — which may be "either".
     tip = 0 if fulfillment == "PICKUP" else cfg.default_tip_cents
     submit_args = ["order", "submit", "--cart-uuid", cart_uuid,
-                   "--fulfillment", cfg.fulfillment, "--tip-cents", str(tip), "--yes"]
+                   "--fulfillment", fulfillment.lower(), "--tip-cents", str(tip), "--yes"]
     if cfg.work_benefits:
         if not (budget and team_id):
             show_alert("Lunchbot: submit blocked",
@@ -200,9 +233,14 @@ def submit_and_record(cfg: Config, state: dict, fav: Favorite, cart_uuid: str,
         if cfg.default_expense_note and note_required:
             submit_args += ["--expense-notes", cfg.default_expense_note]
 
-    submit = dd(*submit_args)
-    order_uuid = submit.get("order_uuid") or ""
-    if not submit.get("success", False) or not order_uuid:
+    # Submit, and on failure offer the user a retry (transient DoorDash errors
+    # are common). Keep the cart alive between attempts so retry can reuse it.
+    order_uuid = ""
+    while True:
+        submit = dd(*submit_args)
+        order_uuid = submit.get("order_uuid") or ""
+        if submit.get("success", False) and order_uuid:
+            break
         err = submit.get("error_message") or submit.get("message") or "unknown error"
         logging.error("submit failed for %s: %s", fav.store, err)
         checkout_url = ""
@@ -211,10 +249,14 @@ def submit_and_record(cfg: Config, state: dict, fav: Favorite, cart_uuid: str,
             checkout_url = url_resp.get("checkout_url") or url_resp.get("url") or ""
         except Exception as e:
             logging.warning("could not get checkout URL: %s", e)
-        show_alert("Lunchbot: submit FAILED",
-                   f"{fav.store} — ${total_cents/100:.2f}\n\nDoorDash rejected the order.\n{err}\n\n"
+        if ask_retry("Lunchbot: order failed",
+                     f"{fav.store} — ${total_cents/100:.2f}\n\nDoorDash rejected the order:\n"
+                     f"{err}\n\nTry again?"):
+            continue
+        show_alert("Lunchbot: order failed",
+                   f"{fav.store} — ${total_cents/100:.2f}\n\n{err}\n\n"
                    + (f"Finish in browser:\n{checkout_url}" if checkout_url
-                      else "Try again in the DoorDash app."))
+                      else "You can try again from the DoorDash app."))
         return
     logging.info("submitted: %s", order_uuid)
 
