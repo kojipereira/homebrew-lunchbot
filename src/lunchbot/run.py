@@ -11,7 +11,7 @@ from . import ddcli
 from .config import Config, Favorite, favorite_eligible
 from .order import delete_cart, prepare_candidate, submit_and_record
 from .state import already_ordered_today
-from .ui import desktop_confirm, notify, show_alert
+from .ui import ask_retry, desktop_confirm, notify
 
 LEAD_TIME_TOLERANCE_MIN = 10
 
@@ -31,18 +31,6 @@ def get_pool(cfg: Config, lead_minutes_now: int | None) -> list[tuple[int, Favor
             continue
         out.append((i, f))
     return out
-
-
-def pick_from_pool(pool, cursor: int, tried: set[int]):
-    n = len(pool)
-    if n == 0:
-        return None
-    for offset in range(n):
-        pool_idx = (cursor + offset) % n
-        original_idx, fav = pool[pool_idx]
-        if original_idx not in tried:
-            return pool_idx, original_idx, fav
-    return None
 
 
 def run(cfg: Config, state: dict, force_pick: str | None, dry_run_override: bool) -> None:
@@ -80,9 +68,15 @@ def run(cfg: Config, state: dict, force_pick: str | None, dry_run_override: bool
         if not matches:
             raise RuntimeError(f"no favorite named {force_pick!r}")
         fav = matches[0]
-        candidate = prepare_candidate(cfg, fav)
-        if not candidate:
-            raise RuntimeError(f"{fav.store} failed guards — see log")
+        candidate = None
+        while candidate is None:
+            candidate = prepare_candidate(cfg, fav)
+            if candidate is None:
+                if ask_retry("Lunchbot: couldn't order",
+                             f"Couldn't prepare {fav.store} right now (unavailable, over "
+                             "your cap, or diet mismatch). Try again?"):
+                    continue
+                raise RuntimeError(f"{fav.store} failed guards — see log")
         cart_uuid, items, line_items, total_cents, fulfillment, budget, team_id = candidate
         answer = (desktop_confirm(cfg, fav, items, line_items, total_cents, fulfillment,
                                   budget, allow_next=False, place_label=place_label)
@@ -108,30 +102,41 @@ def run(cfg: Config, state: dict, force_pick: str | None, dry_run_override: bool
     # favorites are here, at the fast fire only fast ones, etc.
     random.shuffle(pool)
     logging.info("pool (%d, shuffled): %s", len(pool), [f.store for _, f in pool])
-    tried: set[int] = set()
+    n = len(pool)
+    idx = 0
+    fail_streak = 0  # consecutive un-preparable candidates
 
     while True:
-        pick = pick_from_pool(pool, 0, tried)
-        if pick is None:
-            logging.info("exhausted all favorites")
-            show_alert("Lunchbot", "Ran out of favorites — none passed guards / were approved.")
-            return
-        pool_idx, original_idx, fav = pick
-        tried.add(original_idx)
-        logging.info("candidate: %s (uuid=%s)", fav.store, fav.reorder_from)
-
+        _, fav = pool[idx]
+        logging.info("candidate [%d/%d]: %s", idx + 1, n, fav.store)
         candidate = prepare_candidate(cfg, fav)
-        if not candidate:
+        if candidate is None:
+            fail_streak += 1
+            if fail_streak >= n:  # a full cycle, none preparable
+                logging.info("no favorite is orderable right now")
+                if ask_retry("Lunchbot: couldn't order",
+                             "None of your restaurants are orderable right now "
+                             "(unavailable, over your cap, or diet mismatch). Try again?"):
+                    fail_streak = 0
+                    random.shuffle(pool)
+                    idx = 0
+                    continue
+                return
+            idx = (idx + 1) % n   # Shuffle wraps: after the last, back to the first
             continue
+        fail_streak = 0
         cart_uuid, items, line_items, total_cents, fulfillment, budget, team_id = candidate
 
-        allow_next = len(tried) < len(pool)
+        # Shuffle is always offered when there's more than one option; it cycles
+        # through the pool and wraps around (3 options: 1→2→3→1→…).
+        allow_next = n > 1
         answer = (desktop_confirm(cfg, fav, items, line_items, total_cents, fulfillment,
                                   budget, allow_next=allow_next, place_label=place_label)
                   if cfg.desktop_confirm.enabled else "Place")
 
         if answer == "Shuffle":
             delete_cart(cart_uuid)
+            idx = (idx + 1) % n
             continue
         if answer in ("Skip", "TIMEOUT"):
             delete_cart(cart_uuid)

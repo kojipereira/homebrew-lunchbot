@@ -109,6 +109,26 @@ def desktop_confirm(cfg: "Config", fav: "Favorite", items: list[dict],
     return "Skip"
 
 
+def ask_retry(title: str, body: str, timeout: int = 300) -> bool:
+    """Show an error with Cancel / Try again. Returns True if the user chose
+    Try again (default button). A timeout or Cancel returns False."""
+    core = (
+        f'set r to display dialog "{_esc(body)}" '
+        f'buttons {{"Cancel", "Try again"}} default button "Try again" '
+        f'with title "{_esc(title)}" with icon caution giving up after {timeout}\n'
+        'if gave up of r then return "TIMEOUT"\n'
+        'return button returned of r'
+    )
+    r = _osascript('tell application "System Events" to activate\n' + core, timeout=timeout + 30)
+    if r.returncode != 0 and _is_tcc_denied(r.stderr):
+        r = _osascript(core, timeout=timeout + 30)
+    if r.returncode != 0:
+        return False
+    choice = r.stdout.strip()
+    logging.info("ask_retry: %s", choice)
+    return choice == "Try again"
+
+
 def show_alert(title: str, body: str) -> None:
     """Blocking informational alert. Always renders (display alert is not
     TCC-gated); falls back without activate if Automation is denied."""

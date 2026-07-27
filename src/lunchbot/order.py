@@ -13,7 +13,7 @@ from . import config as cfgmod
 from .config import Config, Favorite
 from .ddcli import dd
 from .state import save_state
-from .ui import show_alert
+from .ui import ask_retry, show_alert
 
 
 # ---- preview extractors -----------------------------------------------------
@@ -233,9 +233,14 @@ def submit_and_record(cfg: Config, state: dict, fav: Favorite, cart_uuid: str,
         if cfg.default_expense_note and note_required:
             submit_args += ["--expense-notes", cfg.default_expense_note]
 
-    submit = dd(*submit_args)
-    order_uuid = submit.get("order_uuid") or ""
-    if not submit.get("success", False) or not order_uuid:
+    # Submit, and on failure offer the user a retry (transient DoorDash errors
+    # are common). Keep the cart alive between attempts so retry can reuse it.
+    order_uuid = ""
+    while True:
+        submit = dd(*submit_args)
+        order_uuid = submit.get("order_uuid") or ""
+        if submit.get("success", False) and order_uuid:
+            break
         err = submit.get("error_message") or submit.get("message") or "unknown error"
         logging.error("submit failed for %s: %s", fav.store, err)
         checkout_url = ""
@@ -244,10 +249,14 @@ def submit_and_record(cfg: Config, state: dict, fav: Favorite, cart_uuid: str,
             checkout_url = url_resp.get("checkout_url") or url_resp.get("url") or ""
         except Exception as e:
             logging.warning("could not get checkout URL: %s", e)
-        show_alert("Lunchbot: submit FAILED",
-                   f"{fav.store} — ${total_cents/100:.2f}\n\nDoorDash rejected the order.\n{err}\n\n"
+        if ask_retry("Lunchbot: order failed",
+                     f"{fav.store} — ${total_cents/100:.2f}\n\nDoorDash rejected the order:\n"
+                     f"{err}\n\nTry again?"):
+            continue
+        show_alert("Lunchbot: order failed",
+                   f"{fav.store} — ${total_cents/100:.2f}\n\n{err}\n\n"
                    + (f"Finish in browser:\n{checkout_url}" if checkout_url
-                      else "Try again in the DoorDash app."))
+                      else "You can try again from the DoorDash app."))
         return
     logging.info("submitted: %s", order_uuid)
 
