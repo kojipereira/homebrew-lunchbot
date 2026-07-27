@@ -115,6 +115,14 @@ def uninstall_agent() -> None:
         PLIST_PATH.unlink()
 
 
+def stop_agent() -> None:
+    """Unload the schedule without disabling it — used when the menu-bar app
+    closes, so nothing fires while it's shut. The plist stays on disk and is
+    reinstalled on next launch. Distinct from pause_agent(), which also
+    `disable`s to persist a user-initiated pause across relaunches."""
+    _launchctl("bootout", f"{_domain()}/{LABEL}")
+
+
 def pause_agent() -> None:
     dom = _domain()
     _launchctl("bootout", f"{dom}/{LABEL}")
