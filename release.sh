@@ -36,9 +36,13 @@ TARBALL="dist/lunchbot-$VER.tar.gz"
 SHA="$(shasum -a 256 "$TARBALL" | awk '{print $1}')"
 echo "built $TARBALL  sha256=$SHA"
 
-# 3. Cut the GitHub release (creates tag v$VER, uploads the asset).
-gh release create "v$VER" "$TARBALL" --repo "$REPO" \
-  --title "lunchbot $VER" --notes "Release $VER. brew upgrade lunchbot." >/dev/null
+# 3. Cut the GitHub release (creates tag v$VER, uploads both assets: the
+#    pip-installable source tarball for Homebrew, and the friendly double-click
+#    installer bundle for non-technical users).
+INSTALLER="dist/Lunchbot-Installer-$VER.tar.gz"
+gh release create "v$VER" "$TARBALL" "$INSTALLER" --repo "$REPO" \
+  --title "lunchbot $VER" \
+  --notes "Install: brew install kojipereira/lunchbot/lunchbot — or download **Lunchbot-Installer-$VER.tar.gz** below, expand it, and double-click \"Install Lunchbot.command\". Requires dd-cli (the installer explains how to get it)." >/dev/null
 echo "created release v$VER"
 
 # 4. Patch the formula url + sha256.
