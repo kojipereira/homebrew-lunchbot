@@ -8,6 +8,8 @@ testable) on a plain stdlib interpreter that has no rumps installed.
 
 from __future__ import annotations
 
+import atexit
+import logging
 import os
 import subprocess
 import sys
@@ -16,7 +18,8 @@ from datetime import datetime, timedelta
 
 from .. import agent, setup_core
 from ..config import ConfigError, favorite_eligible, load_config
-from ..state import add_skip_date, already_ordered_today, load_state
+from ..state import (add_skip_date, already_ordered_today, load_state,
+                     set_schedule_paused)
 
 try:
     import rumps
@@ -64,6 +67,31 @@ def _status_text() -> str:
     return f"Next: {DAY_NAMES[nf.weekday() + 1]} {nf.strftime('%H:%M')}"
 
 
+def _stop_schedule_quietly() -> None:
+    """Unload the ordering schedule (best effort) so nothing fires while the
+    app is closed. The user's paused/active intent is untouched, so the next
+    launch restores the same schedule. Safe to call more than once."""
+    try:
+        agent.stop_agent()
+    except Exception:  # noqa: BLE001 — must never block app shutdown
+        logging.exception("stopping schedule on exit failed (ignored)")
+
+
+def _restore_schedule_quietly() -> None:
+    """Reinstall the ordering schedule from the current config unless the user
+    last left it paused. Best effort; safe to call off the main thread."""
+    try:
+        cfg = load_config()
+    except ConfigError:
+        return  # not set up yet; nothing to restore
+    if load_state().get("schedule_paused"):
+        return  # honour a deliberate pause across quit/reopen
+    try:
+        agent.resume_agent(cfg)  # = install_agent: restart last schedule
+    except Exception:  # noqa: BLE001 — never block startup
+        logging.exception("restoring schedule on launch failed (ignored)")
+
+
 def _spawn_prefs() -> None:
     """Launch the Tkinter preferences form as its own process (AppKit's run
     loop and Tk's mainloop cannot share one process)."""
@@ -94,6 +122,10 @@ def main() -> int:
               "Run `lunchbot doctor` for details.", file=sys.stderr)
         return 1
 
+    # Stop the schedule whenever this process exits — covers the Quit menu item
+    # (which also stops it up front) plus any other clean shutdown path.
+    atexit.register(_stop_schedule_quietly)
+
     class LunchbotApp(rumps.App):
         def __init__(self):
             # Prefer the Lucide SVG, but only if NSImage can actually render it —
@@ -117,10 +149,16 @@ def main() -> int:
                 rumps.MenuItem("Preferences…", callback=lambda _: _spawn_prefs()),
                 rumps.MenuItem("View logs", callback=lambda _: _open_logs()),
                 None,
-                rumps.MenuItem("Quit Lunchbot", callback=rumps.quit_application),
+                rumps.MenuItem("Quit Lunchbot", callback=self._on_quit),
             ]
             self.refresh(None)
             rumps.Timer(self.refresh, 60).start()
+            # Restore the schedule to its last state on launch (off the main
+            # thread so launchctl never stalls the menu appearing), then refresh
+            # once it's settled.
+            threading.Thread(target=self._restore_schedule, daemon=True).start()
+            self._startup_refresh = rumps.Timer(self._refresh_once, 2)
+            self._startup_refresh.start()
             # Force menu-bar-accessory mode shortly after the run loop is up, so
             # the 🥪 icon reliably appears top-right with no Dock icon — however
             # the process was launched (double-click app, launchd, or CLI).
@@ -140,6 +178,20 @@ def main() -> int:
             except Exception:  # noqa: BLE001 — cosmetic; never block the app
                 pass
             timer.stop()
+
+        # ---- lifecycle ---------------------------------------------------
+        def _restore_schedule(self):
+            """On launch, bring the ordering schedule back to its last state.
+            Runs on a background thread — never touch rumps UI here."""
+            _restore_schedule_quietly()
+
+        def _refresh_once(self, timer):
+            timer.stop()
+            self.refresh(None)
+
+        def _on_quit(self, sender):
+            _stop_schedule_quietly()
+            rumps.quit_application(sender)
 
         # ---- refresh -----------------------------------------------------
         def refresh(self, _):
@@ -216,10 +268,12 @@ def main() -> int:
                 return
             if agent.is_loaded():
                 agent.pause_agent()
+                set_schedule_paused(True)
                 rumps.notification("Lunchbot", "", "Schedule paused.")
             else:
                 try:
                     agent.resume_agent(cfg)
+                    set_schedule_paused(False)
                     rumps.notification("Lunchbot", "", "Schedule resumed.")
                 except RuntimeError as e:
                     rumps.alert("Lunchbot", f"Couldn't resume: {e}")

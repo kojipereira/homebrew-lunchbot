@@ -24,6 +24,10 @@ def load_state() -> dict:
     data.setdefault("cursor", 0)
     data.setdefault("orders", {})
     data.setdefault("skip_dates", [])
+    # Whether the user has paused the ordering schedule. The menu-bar app stops
+    # the schedule when it closes and restores it on launch — but only back to
+    # this last-known intent, so a deliberate pause survives a quit/reopen.
+    data.setdefault("schedule_paused", False)
     return data
 
 
@@ -34,6 +38,13 @@ def save_state(state: dict) -> None:
 
 def already_ordered_today(state: dict) -> bool:
     return date.today().isoformat() in state.get("orders", {})
+
+
+def set_schedule_paused(paused: bool) -> None:
+    """Persist the user's schedule intent (paused vs. active)."""
+    state = load_state()
+    state["schedule_paused"] = bool(paused)
+    save_state(state)
 
 
 def add_skip_date(iso_date: str) -> bool:
