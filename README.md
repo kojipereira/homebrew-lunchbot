@@ -18,6 +18,12 @@ machine.
 
 ## Install
 
+### Getting dd-cli
+
+lunchbot needs the DoorDash CLI. You bring your own copy:
+
+Download `dd-cli` for Apple Silicon https://github.com/doordash-oss/doordash-cli/releases
+
 ### Option A — download & double-click (no terminal)
 
 1. Go to the [**Releases**](https://github.com/kojipereira/homebrew-lunchbot/releases)
@@ -47,19 +53,6 @@ lunchbot install-app           # a double-clickable Lunchbot.app in ~/Applicatio
 
 Either way you'll need dd-cli (below). `install-app` drops a **Lunchbot.app** in
 `~/Applications` you can double-click, drag to the Dock, or keep on the Desktop.
-
-### Getting dd-cli
-
-lunchbot needs the DoorDash CLI. You bring your own copy:
-
-1. Download `dd-cli` for Apple Silicon (ask whoever shared lunchbot with you; or
-   set `LUNCHBOT_DDCLI_URL` so the app can point you to it).
-2. Put it on your PATH: `mv ~/Downloads/dd-cli /opt/homebrew/bin/`
-3. If macOS blocks it (downloaded binary):
-   `xattr -d com.apple.quarantine $(command -v dd-cli)`
-4. Sign in: `dd-cli login` (opens a browser).
-
-`lunchbot doctor` checks all of this and prints the exact fix for whatever's missing.
 
 ## The menu-bar app
 
