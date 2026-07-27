@@ -4,6 +4,7 @@ matches the current time, walk it through preview/confirm/submit."""
 from __future__ import annotations
 
 import logging
+import random
 from datetime import date, datetime
 
 from . import ddcli
@@ -102,11 +103,15 @@ def run(cfg: Config, state: dict, force_pick: str | None, dry_run_override: bool
     if not pool:
         logging.info("no favorites match lead time %d min (asleep past a tier?) — nothing to do", lead_now)
         return
+    # Randomize the order each fire so the pick isn't a predictable rotation.
+    # The pool is already tier-filtered, so at the slow fire only slow-tier
+    # favorites are here, at the fast fire only fast ones, etc.
+    random.shuffle(pool)
+    logging.info("pool (%d, shuffled): %s", len(pool), [f.store for _, f in pool])
     tried: set[int] = set()
-    cursor = state.get("cursor", 0)
 
     while True:
-        pick = pick_from_pool(pool, cursor, tried)
+        pick = pick_from_pool(pool, 0, tried)
         if pick is None:
             logging.info("exhausted all favorites")
             show_alert("Lunchbot", "Ran out of favorites — none passed guards / were approved.")

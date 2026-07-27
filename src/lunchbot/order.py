@@ -38,6 +38,15 @@ def extract_fulfillment(preview: dict) -> str:
         return ""
 
 
+def store_offers_pickup(preview: dict):
+    """DoorDash's own 'is pickup viable here' flag (False when the store is out
+    of pickup range, i.e. too far). None if the field is absent."""
+    try:
+        return preview["quote"]["store_order_cart"]["store"]["offers_pickup"]
+    except (KeyError, TypeError):
+        return None
+
+
 def extract_line_items(preview: dict) -> list[tuple[str, str]]:
     try:
         rows = preview["quote"]["line_items"]
@@ -138,6 +147,14 @@ def _try_mode(cfg: Config, fav: Favorite, mode: str) -> Candidate | None:
     expected = mode.upper()
     if fulfillment != expected:
         logging.info("%s: %s unavailable (got %s)", fav.store, mode, fulfillment or "none")
+        delete_cart(cart_uuid)
+        return None
+
+    # Forcing --fulfillment pickup can echo PICKUP even for a store that's out of
+    # pickup range; trust DoorDash's own flag. With "either" this falls through
+    # to a delivery attempt (i.e. too far → delivery).
+    if mode == "pickup" and store_offers_pickup(preview) is False:
+        logging.info("%s: pickup not offered (too far) — skipping pickup", fav.store)
         delete_cart(cart_uuid)
         return None
 

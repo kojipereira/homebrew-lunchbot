@@ -143,10 +143,17 @@ def main() -> int:
 
         # ---- refresh -----------------------------------------------------
         def refresh(self, _):
-            self.status_item.title = _status_text()
-            loaded = agent.is_loaded()
-            self.pause_item.title = "Resume" if (not loaded and agent.PLIST_PATH.exists()) else "Pause"
-            self._rebuild_order_menu()
+            # Never let a transient error (dd-cli hiccup, launchctl race) escape
+            # the timer callback — an unhandled exception would tear down the run
+            # loop and the menu-bar icon with it.
+            try:
+                self.status_item.title = _status_text()
+                loaded = agent.is_loaded()
+                self.pause_item.title = "Resume" if (not loaded and agent.PLIST_PATH.exists()) else "Pause"
+                self._rebuild_order_menu()
+            except Exception:  # noqa: BLE001
+                import logging
+                logging.exception("menu refresh failed (ignored)")
 
         def _rebuild_order_menu(self):
             # A rumps submenu has no backing NSMenu until its first item is
@@ -175,21 +182,25 @@ def main() -> int:
             return cb
 
         def _order_worker(self, store):
+            # Runs on a BACKGROUND thread: never touch rumps/AppKit UI here (that
+            # crashes the app and drops the menu-bar icon). Use show_alert, which
+            # shells out to osascript and is safe from any thread. Let the 60s
+            # timer handle the menu refresh on the main thread.
             from ..run import run
+            from ..ui import show_alert
             try:
                 cfg = load_config()
             except ConfigError as e:
-                rumps.alert("Lunchbot", f"Config problem: {e}")
+                show_alert("Lunchbot", f"Config problem: {e}")
                 return
             ready = setup_core.preflight(attempt_login=False)
             if not ready.ok:
-                rumps.alert("dd-cli not ready", ready.detail)
+                show_alert("dd-cli not ready", ready.detail)
                 return
             try:
                 run(cfg, load_state(), force_pick=store, dry_run_override=cfg.dry_run)
             except Exception as e:  # noqa: BLE001 — surface, never crash the app
-                rumps.alert("Lunchbot: order failed", str(e))
-            self.refresh(None)
+                show_alert("Lunchbot: order failed", str(e))
 
         def skip_today(self, _):
             iso = datetime.now().date().isoformat()
