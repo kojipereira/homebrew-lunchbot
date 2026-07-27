@@ -75,6 +75,19 @@ def _open_logs() -> None:
     subprocess.Popen(["open", str(paths.LOG_PATH)])
 
 
+def _icon_loads(path: str) -> bool:
+    """True only if the file exists AND NSImage can render it to a real image —
+    guards against an invisible menu-bar item when SVG rendering isn't available."""
+    if not os.path.exists(path):
+        return False
+    try:
+        from AppKit import NSImage
+        img = NSImage.alloc().initWithContentsOfFile_(path)
+        return bool(img and img.isValid() and img.size().width > 0)
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def main() -> int:
     if rumps is None:
         print("The menu-bar app needs rumps (installed in the Homebrew venv). "
@@ -83,7 +96,10 @@ def main() -> int:
 
     class LunchbotApp(rumps.App):
         def __init__(self):
-            if os.path.exists(ICON_PATH):
+            # Prefer the Lucide SVG, but only if NSImage can actually render it —
+            # a nil/zero-size icon would make the menu-bar item invisible. Always
+            # keep the emoji as `title` too, so SOMETHING shows no matter what.
+            if _icon_loads(ICON_PATH):
                 super().__init__("Lunchbot", icon=ICON_PATH, template=True, quit_button=None)
             else:
                 super().__init__("Lunchbot", title=APP_TITLE, quit_button=None)
