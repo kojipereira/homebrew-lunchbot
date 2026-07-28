@@ -92,6 +92,72 @@ def _restore_schedule_quietly() -> None:
         logging.exception("restoring schedule on launch failed (ignored)")
 
 
+def _make_splash_window():
+    """Build and front a small borderless splash card, returned so the caller
+    can keep it alive and dismiss it. Returns None (and never raises) if AppKit
+    is unavailable — a splash must never break launch. The app is a menu-bar
+    accessory with no Dock icon or window, so this is the only instant feedback
+    a launch gives before the status-bar item appears."""
+    try:
+        from AppKit import (NSBackingStoreBuffered, NSColor, NSFont, NSImage,
+                            NSImageView, NSScreen, NSStatusWindowLevel,
+                            NSTextAlignmentCenter, NSTextField, NSView, NSWindow,
+                            NSWindowCollectionBehaviorCanJoinAllSpaces,
+                            NSWindowStyleMaskBorderless)
+        from Foundation import NSMakeRect
+
+        screen = NSScreen.mainScreen()
+        if screen is None:
+            return None
+        w, h = 260.0, 156.0
+        vf = screen.frame()
+        x = vf.origin.x + (vf.size.width - w) / 2.0
+        y = vf.origin.y + (vf.size.height - h) / 2.0 + 80.0  # a touch above center
+        win = NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
+            NSMakeRect(x, y, w, h), NSWindowStyleMaskBorderless,
+            NSBackingStoreBuffered, False)
+        win.setOpaque_(False)
+        win.setBackgroundColor_(NSColor.clearColor())
+        win.setLevel_(NSStatusWindowLevel)
+        win.setIgnoresMouseEvents_(True)
+        win.setCollectionBehavior_(NSWindowCollectionBehaviorCanJoinAllSpaces)
+
+        card = NSView.alloc().initWithFrame_(NSMakeRect(0, 0, w, h))
+        card.setWantsLayer_(True)
+        card.layer().setCornerRadius_(20.0)
+        card.layer().setBackgroundColor_(
+            NSColor.colorWithCalibratedWhite_alpha_(1.0, 0.97).CGColor())
+        win.setContentView_(card)
+
+        if _icon_loads(ICON_PATH):
+            iv = NSImageView.alloc().initWithFrame_(NSMakeRect((w - 60) / 2, h - 94, 60, 60))
+            iv.setImage_(NSImage.alloc().initWithContentsOfFile_(ICON_PATH))
+            card.addSubview_(iv)
+
+        def _text(value, yy, size, bold, color=None):
+            lbl = NSTextField.alloc().initWithFrame_(NSMakeRect(0, yy, w, size + 10))
+            lbl.setStringValue_(value)
+            lbl.setAlignment_(NSTextAlignmentCenter)
+            lbl.setBezeled_(False)
+            lbl.setEditable_(False)
+            lbl.setSelectable_(False)
+            lbl.setDrawsBackground_(False)
+            lbl.setFont_(NSFont.boldSystemFontOfSize_(size) if bold
+                        else NSFont.systemFontOfSize_(size))
+            if color is not None:
+                lbl.setTextColor_(color)
+            card.addSubview_(lbl)
+
+        _text("Lunchbot", 34, 18, True)
+        _text("starting…", 14, 12, False, NSColor.secondaryLabelColor())
+
+        win.orderFrontRegardless()
+        return win
+    except Exception:  # noqa: BLE001 — a splash must never break launch
+        logging.exception("splash window failed (ignored)")
+        return None
+
+
 def _spawn_prefs() -> None:
     """Launch the Tkinter preferences form as its own process (AppKit's run
     loop and Tk's mainloop cannot share one process)."""
@@ -151,8 +217,19 @@ def main() -> int:
                 None,
                 rumps.MenuItem("Quit Lunchbot", callback=self._on_quit),
             ]
-            self.refresh(None)
+            # Cheap placeholder so the menu-bar item can appear right away; the
+            # real status (which shells out to launchctl) is filled in a beat
+            # later, off the launch critical path.
+            self.status_item.title = "Starting…"
             rumps.Timer(self.refresh, 60).start()
+            # Instant feedback the moment the run loop is up: a brief splash (the
+            # app has no Dock icon or window, so otherwise a click looks like
+            # nothing happened), then a fast first paint of the real status.
+            self._splash = None
+            self._splash_timer = rumps.Timer(self._show_splash, 0.01)
+            self._splash_timer.start()
+            self._first_paint = rumps.Timer(self._refresh_once, 0.15)
+            self._first_paint.start()
             # Restore the schedule to its last state on launch (off the main
             # thread so launchctl never stalls the menu appearing), then refresh
             # once it's settled.
@@ -188,6 +265,23 @@ def main() -> int:
         def _refresh_once(self, timer):
             timer.stop()
             self.refresh(None)
+
+        def _show_splash(self, timer):
+            timer.stop()
+            self._splash = _make_splash_window()
+            if self._splash is not None:
+                self._splash_close = rumps.Timer(self._close_splash, 1.4)
+                self._splash_close.start()
+
+        def _close_splash(self, timer):
+            timer.stop()
+            win, self._splash = self._splash, None
+            if win is not None:
+                try:
+                    win.orderOut_(None)
+                    win.close()
+                except Exception:  # noqa: BLE001 — cosmetic; never block the app
+                    logging.exception("closing splash failed (ignored)")
 
         def _on_quit(self, sender):
             _stop_schedule_quietly()
