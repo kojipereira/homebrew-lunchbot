@@ -7,10 +7,15 @@
 #   ./release.sh 1.1.4 --assets-only    # repair an existing release that is
 #                                       # missing one of its two assets
 #
-# Requires: gh (authenticated), a clean-ish working tree.
+# Requires: gh (authenticated), a clean working tree.
 #
-# Two things this script is careful about, because both have bitten us:
+# Three things this script is careful about, because all three have bitten us:
 #
+#   * The release branch is cut from an up-to-date main, NOT from wherever HEAD
+#     happens to be sitting. Step 4 leaves you parked on the release branch, so
+#     the next run branches off the *previous release* unless we move first —
+#     that is how v1.1.7 got cut from v1.1.6's commit and shipped without the
+#     app icon and three other merged PRs.
 #   * The tag is created on the release branch, NOT on main. Cutting it on main
 #     before the bump PR merged is what left v1.1.4 and v1.1.5 tagging trees
 #     that still said 1.1.2 and 1.1.3.
@@ -89,6 +94,32 @@ if [ "$MODE" = "--assets-only" ]; then
 fi
 
 echo "── releasing v$VER ──"
+
+# 0. Cut from an up-to-date main. Everything below assumes HEAD is the tree we
+#    mean to ship: `git checkout -B` branches from HEAD, and the tag lands on
+#    that branch. Set RELEASE_BASE to release from something other than main.
+BASE="${RELEASE_BASE:-main}"
+
+if [ -n "$(git status --porcelain)" ]; then
+  echo >&2
+  echo "ERROR: working tree is dirty; refusing to cut a release from it." >&2
+  echo "Commit or stash your changes first (git stash -u), then re-run." >&2
+  exit 1
+fi
+
+echo "syncing $BASE from origin"
+git fetch origin "$BASE"
+git checkout "$BASE"
+# --ff-only: if local $BASE has drifted from the remote, stop rather than
+# silently release a tree nobody else has.
+git merge --ff-only "origin/$BASE"
+
+if [ "$(git rev-parse HEAD)" != "$(git rev-parse "origin/$BASE")" ]; then
+  echo >&2
+  echo "ERROR: HEAD is not origin/$BASE after sync — refusing to release." >&2
+  exit 1
+fi
+echo "releasing from $BASE @ $(git rev-parse --short HEAD)"
 
 # 1. Bump version in the three places that track it.
 "$PY" - "$VER" <<'PY'
