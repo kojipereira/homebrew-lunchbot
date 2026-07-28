@@ -13,8 +13,7 @@ from __future__ import annotations
 from datetime import date
 
 from . import agent, ddcli, paths, setup_core
-from .config import (DIET_CHOICES, FULFILLMENT_CHOICES, Config,
-                     DesktopConfirmCfg, Favorite, favorite_eligible,
+from .config import (FULFILLMENT_CHOICES, Config, DesktopConfirmCfg, Favorite,
                      load_config, write_config)
 from .run import run
 from .state import load_state
@@ -71,12 +70,8 @@ def setup() -> int:
         print("No restaurants selected — nothing to do.")
         return 1
 
-    # Diet preference (asked once, applied to all favorites)
-    diet = ask_choice("\nYour dietary preference", list(DIET_CHOICES),
-                      prev.diet if prev else "omnivore")
-
     # Fulfillment: pickup or delivery
-    fulfillment = ask_choice("Pickup or delivery?", list(FULFILLMENT_CHOICES),
+    fulfillment = ask_choice("\nPickup or delivery?", list(FULFILLMENT_CHOICES),
                              prev.fulfillment if prev else "pickup")
 
     favorites: list[Favorite] = []
@@ -90,7 +85,7 @@ def setup() -> int:
         lead = ask_int(f"  {s['store']} — minutes ahead", old.lead_minutes if old else 30) \
             if tier == "custom" else LEAD_TIERS[tier]
         favorites.append(Favorite(store=s["store"], store_id=s["store_id"],
-                                   reorder_from=s["order_uuid"], diet=diet, lead_minutes=lead))
+                                   reorder_from=s["order_uuid"], lead_minutes=lead))
 
     # Delivery address (shown for both pickup and delivery — sets which stores are nearby)
     delivery_address_id = prev.delivery_address_id if prev else ""
@@ -155,7 +150,7 @@ def setup() -> int:
     weekdays = sorted(d + 1 for d in chosen_days) if chosen_days else [1, 2, 3, 4, 5]
 
     cfg = Config(
-        diet=diet, fulfillment=fulfillment,
+        fulfillment=fulfillment,
         price_cap_cents=price_dollars * 100, dry_run=False,
         work_benefits=work_benefits, default_tip_cents=prev.default_tip_cents if prev else 0,
         lunch_time=lunch_time, default_expense_code="", default_expense_note="",
@@ -178,10 +173,6 @@ def setup() -> int:
         print(f"None of the selected restaurants support {fulfillment}. Nothing to save.")
         return 1
     cfg.favorites = kept
-
-    if not any(favorite_eligible(f.diet, cfg.diet) for f in cfg.favorites):
-        print(f"\nWarning: no kept restaurant satisfies a {cfg.diet} diet — "
-              "the agent would have nothing to order. Adjust diets and re-run.")
 
     write_config(cfg)
     print(f"\nSaved config → {paths.CONFIG_PATH}")

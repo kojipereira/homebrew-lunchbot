@@ -15,7 +15,7 @@ import subprocess
 from pathlib import Path
 
 from . import paths
-from .config import Config, favorite_eligible
+from .config import Config
 
 LABEL = "com.lunchbot.agent"          # daily ordering agent
 GUI_LABEL = "com.lunchbot.gui"        # menu-bar app (see gui_agent helpers below)
@@ -46,12 +46,11 @@ def _domain() -> str:
 
 
 def fire_times(cfg: Config) -> list[tuple[int, int]]:
-    """(hour, minute) tuples: for each distinct lead tier among diet-eligible
-    favorites, fire at lunch_time − lead_minutes."""
+    """(hour, minute) tuples: for each distinct lead tier among the favorites,
+    fire at lunch_time − lead_minutes."""
     lh, lm = (int(x) for x in cfg.lunch_time.split(":"))
     lunch_min = lh * 60 + lm
-    leads = sorted({f.lead_minutes for f in cfg.favorites
-                    if favorite_eligible(f.diet, cfg.diet)})
+    leads = sorted({f.lead_minutes for f in cfg.favorites})
     times = set()
     for lead in leads:
         t = (lunch_min - lead) % (24 * 60)
@@ -94,8 +93,8 @@ def _launchctl(*args: str, check: bool = False) -> subprocess.CompletedProcess:
 def install_agent(cfg: Config) -> None:
     if not fire_times(cfg):
         raise RuntimeError(
-            "No diet-eligible favorites, so no fire times to schedule. "
-            "Add favorites that match your diet (`lunchbot setup`)."
+            "No favorites, so no fire times to schedule. "
+            "Add favorites with `lunchbot setup`."
         )
     if not LAUNCHER.exists():
         raise RuntimeError(f"launcher not found at {LAUNCHER}; run install.sh first")

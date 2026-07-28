@@ -88,7 +88,7 @@ def probe_favorite(fulfillment: str, lunch_time: str, fav: Favorite) -> tuple[bo
     (keep, note). keep=True with an empty note on success; keep=True with a note
     on an inconclusive error (retry at runtime); keep=False when unsupported.
     Never leaks a cart."""
-    probe_cfg = Config(diet="omnivore", fulfillment=fulfillment,
+    probe_cfg = Config(fulfillment=fulfillment,
                        price_cap_cents=10_000_000, work_benefits=False,
                        lunch_time=lunch_time, favorites=[])
     try:
