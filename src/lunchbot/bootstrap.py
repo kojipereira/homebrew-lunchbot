@@ -57,7 +57,11 @@ def bootstrap(force: bool = False, gui_agent: bool = True) -> list[str]:
     there was nothing to do). Never raises: callers are install paths where a
     failure here must not break anything else.
     """
-    if not force and _stamp_is_current():
+    # A current stamp isn't quite enough: a machine can sit at this version with
+    # an older LaunchAgent (one that reopens the app the moment it's quit), so
+    # the plist is checked too whenever we're responsible for it.
+    if not force and _stamp_is_current() and (not gui_agent
+                                              or agent.gui_plist_is_current()):
         return []
 
     actions: list[str] = []
@@ -72,11 +76,16 @@ def bootstrap(force: bool = False, gui_agent: bool = True) -> list[str]:
 
     if gui_agent:
         try:
-            if agent.gui_is_loaded():
-                # Already running — an upgrade needs it to pick up the new code.
+            if agent.gui_plist_is_current() and agent.gui_is_loaded():
+                # Registered and up to date — but an upgrade still needs the
+                # running copy to pick up the new code.
                 agent.restart_gui_agent()
                 actions.append("restarted the menu-bar app")
             else:
+                # Missing, not loaded, or stale. Stale is the one that matters:
+                # older plists relaunch the app the instant you quit it, and a
+                # kickstart would preserve that forever. Rewriting re-bootstraps
+                # the job, which restarts the app too.
                 agent.install_gui_agent()
                 actions.append("menu-bar app registered (starts at login)")
         except Exception as e:  # noqa: BLE001 — launchctl/RuntimeError, all non-fatal
@@ -91,7 +100,12 @@ def bootstrap(force: bool = False, gui_agent: bool = True) -> list[str]:
 def auto(cmd: str) -> None:
     """Provision on the way into a CLI command, silently. Called for every
     command not in SKIP_COMMANDS."""
-    if cmd in SKIP_COMMANDS or _stamp_is_current():
+    if cmd in SKIP_COMMANDS:
+        return
+    # The stamp alone would skip a machine still carrying an older LaunchAgent at
+    # the same version (a plist that reopens the app the moment it's quit), so
+    # the plist gets a look too. Both checks are local file reads.
+    if _stamp_is_current() and agent.gui_plist_is_current():
         return
     try:
         bootstrap()

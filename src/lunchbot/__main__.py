@@ -90,7 +90,9 @@ def main(argv=None) -> int:
     p_run.add_argument("--pick", type=str, help="force a favorite by store name")
 
     sub.add_parser("setup", help="interactive setup / edit preferences")
-    sub.add_parser("gui", help="run the menu-bar app (foreground)")
+    p_gui = sub.add_parser("gui", help="run the menu-bar app (foreground)")
+    p_gui.add_argument("--prefs", action="store_true",
+                       help="also open the preferences window (what Lunchbot.app does)")
     sub.add_parser("prefs", help="open the preferences window")
     sub.add_parser("doctor", help="health check")
     sub.add_parser("bootstrap", help="(re)create Lunchbot.app + the menu-bar agent")
@@ -122,8 +124,8 @@ def main(argv=None) -> int:
         from .wizard import setup
         return setup()
     if cmd == "gui":
-        from .gui.app import main as gui_main
-        return gui_main()
+        from .gui import app as gui_app
+        return gui_app.main(["--prefs"] if args.prefs else [])
     if cmd == "prefs":
         from .gui.prefs import main as prefs_main
         return prefs_main()
