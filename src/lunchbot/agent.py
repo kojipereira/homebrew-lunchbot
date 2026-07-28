@@ -36,7 +36,7 @@ STDERR_LOG = paths.HOME / "Library" / "Logs" / "lunchbot.stderr.log"
 GUI_STDOUT_LOG = paths.HOME / "Library" / "Logs" / "lunchbot.gui.log"
 
 # Legacy labels from earlier installs (migration targets — torn down on setup).
-LEGACY_LABELS = ("com.koji.lunchbot", "com.sigmacomputing.lunchbot")
+LEGACY_LABELS = ("com.koji.lunchbot",)
 
 _AGENT_PATH = "/opt/homebrew/bin:" + str(paths.HOME / ".local" / "bin") + ":/usr/bin:/bin:/usr/sbin:/sbin"
 
@@ -130,7 +130,7 @@ def test_fire() -> None:
 
 
 def migrate_legacy() -> None:
-    """Tear down any earlier-labeled agents (single-user + Sigma builds)."""
+    """Tear down any earlier-labeled agents from pre-1.1 installs."""
     for label in LEGACY_LABELS:
         legacy_plist = paths.HOME / "Library" / "LaunchAgents" / f"{label}.plist"
         _launchctl("bootout", f"{_domain()}/{label}")

@@ -9,7 +9,7 @@ echo "── lunchbot uninstall ──"
 
 # Tear down both agents (and any legacy labels), directly — don't rely on the
 # launcher still existing.
-for LABEL in com.lunchbot.agent com.lunchbot.gui com.koji.lunchbot com.sigmacomputing.lunchbot; do
+for LABEL in com.lunchbot.agent com.lunchbot.gui com.koji.lunchbot; do
   launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
   [ -f "$LA/$LABEL.plist" ] && rm -f "$LA/$LABEL.plist" && echo "removed $LABEL.plist"
 done
