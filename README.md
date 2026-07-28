@@ -21,7 +21,7 @@ DoorDash CLI.
 
 ## Install
 
-### Getting dd-cli
+### Requirement: dd-cli
 
 lunchbot needs the DoorDash CLI. You bring your own copy:
 
@@ -57,14 +57,6 @@ also drops a **Lunchbot.app** in `~/Applications` (double-click it, drag it to
 the Dock) and registers the 🥪 menu-bar app so it starts now and at every login
 — you don't run `install-app` or `install-gui-agent` yourself.
 
-Homebrew can't do that during `brew install`: `post_install` runs in a sandbox
-that calls `deny_read_home`, so a formula physically cannot write to
-`~/Applications` or `~/Library/LaunchAgents`. lunchbot provisions itself instead,
-once per version, on the way into its next command. `lunchbot bootstrap` redoes
-it on demand.
-
-Either way you'll need dd-cli (below).
-
 ## Updates
 
 ```sh
@@ -75,32 +67,8 @@ brew upgrade lunchbot
 Your config, schedule, and login are untouched. The menu-bar app relaunches on
 the new version automatically.
 
-## The menu-bar app
 
-A 🥪 menu-bar icon starts at login (set up for you on install). From it you can:
-
-- see the next scheduled order time (or **Paused** / **Ordered today ✓**),
-- **Order now** from any favorite,
-- **Skip today**, **Pause**/**Resume** the schedule,
-- open **Preferences…** (restaurants, pickup/delivery, address, times, days),
-- view logs.
-
-Preferences opens a real Cocoa window — stock AppKit controls throughout
-(checkboxes, pop-up buttons, a time picker, a segmented day picker), so it
-follows system appearance, Dark Mode, your accent colour, and VoiceOver with no
-theming of its own. Saving writes your config and reschedules the daily agent.
-The confirmation you approve at lunchtime is a native macOS dialog too.
-
-**Opening it from Launchpad, Finder or the Dock** puts the 🥪 in the menu bar and
-opens Preferences — that's what clicking `Lunchbot.app` is for. If Lunchbot is
-already running you keep the one icon; the click just brings Preferences forward.
-
-**Quit means quit.** **Quit Lunchbot** closes the app and it stays closed — the
-LaunchAgent brings it back only if it crashed, and it starts again at your next
-login. To stop it starting at login too: `lunchbot uninstall-gui-agent` (open
-`Lunchbot.app` any time to bring it back).
-
-## Everyday use (CLI equivalents)
+## CLI equivalents
 
 ```sh
 lunchbot setup            # re-run any time to change preferences
