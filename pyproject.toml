@@ -24,3 +24,5 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 "lunchbot.gui" = ["icons/*.svg", "icons/*.txt"]
+# Lunchbot.app's Finder/Dock icon, copied into the bundle by appbundle.py.
+"lunchbot" = ["resources/*.icns"]

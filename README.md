@@ -134,6 +134,9 @@ Run `lunchbot doctor` first — it checks all of the below.
   the Homebrew venv — `lunchbot doctor` says if it's missing. Meanwhile
   `lunchbot setup` covers the same ground in the terminal.
 - **Menu-bar icon or Lunchbot.app missing.** `lunchbot bootstrap` re-creates both.
+- **Lunchbot.app shows a generic icon.** An app bundle created before the icon
+  shipped. `lunchbot bootstrap` rewrites it; if Finder still draws the old one,
+  its cache is stale — log out and back in.
 - **Laptop asleep at the fire time.** macOS coalesces missed timers into one run
   at wake; if you wake past lunch, no tier matches and nothing orders — the log
   says so.
@@ -164,9 +167,18 @@ persist unless you remove them.
   (the menu-bar app). Both target the stable `/opt/homebrew/bin` symlinks, so
   `brew upgrade` never rewrites a plist.
 - Config is TOML via `tomllib`; plists are generated with `plistlib`.
+- **The app icon** is authored in Icon Composer at `assets/lunchbot.icon` and
+  compiled to `src/lunchbot/resources/Lunchbot.icns`, which `appbundle.py` copies
+  into `Lunchbot.app/Contents/Resources`. Nothing on a user's Mac rasterizes it —
+  the `.icns` is committed. After editing the `.icon`, regenerate with
+  `pip install pillow cairosvg && ./tools/build-icon.py` (the script reads
+  `icon.json`: gradient fill, stacked SVG layers, group shadow, squircle mask,
+  Apple's 824-in-1024 art box) and commit the result. A bundle without it still
+  launches; it just shows Finder's generic icon, which `lunchbot doctor` flags.
 - Tests are stdlib-only scripts — `PYTHONPATH=src python3.13 tests/test_*.py`.
   `test_prefs_window.py` runs the AppKit window against a PyObjC-shaped stub, so
-  it works on any machine. It's worth keeping green: PyObjC publishes every
+  it works on any machine; `test_appbundle.py` checks the `.icns` is present and
+  well-formed and that `install_app` wires it into the bundle. It's worth keeping green: PyObjC publishes every
   undecorated method of an NSObject subclass as a selector (underscores become
   colons) and refuses an arity mismatch *at import*, so one helper missing
   `@objc.python_method` breaks the whole window rather than one code path.
