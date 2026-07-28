@@ -106,6 +106,13 @@ def doctor() -> int:
     _p(OK if app_path.exists() else WARN,
        f"Lunchbot.app at {app_path}" if app_path.exists()
        else f"no Lunchbot.app in {appbundle.DEFAULT_APP_DIR} (`lunchbot bootstrap`)")
+    if app_path.exists():
+        # A bundle left over from before the icon shipped shows Finder's generic
+        # executable icon; `lunchbot bootstrap` rewrites it.
+        icon = app_path / "Contents" / "Resources" / appbundle.ICON_FILE
+        _p(OK if icon.exists() else WARN,
+           "app icon installed" if icon.exists()
+           else "Lunchbot.app has no icon (`lunchbot bootstrap`)")
 
     # 10. Log dir writable
     try:
