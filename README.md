@@ -27,6 +27,8 @@ lunchbot needs the DoorDash CLI. You bring your own copy:
 
 Download `dd-cli` for Apple Silicon https://github.com/doordash-oss/doordash-cli/releases
 
+dd-cli is on beta to request access fill this form: https://docs.google.com/forms/d/e/1FAIpQLScMG2Echsfy14CT_6MAHVsW6Hw6oNkz1BOiOj5RIzvcMRRrpA/viewform?edit2=2_ABaOnucwosS05Lsnk_JM-8rgIwZXhjjd2iOcdDNp3dt2JBw8LLQztu_dnCm3mR3G7A
+
 ### Option A — download & double-click (no terminal)
 
 1. Go to the [**Releases**](https://github.com/kojipereira/homebrew-lunchbot/releases)
