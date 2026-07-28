@@ -27,13 +27,18 @@ ICON_FILE = f"{APP_NAME}.icns"
 
 # Resolve the GUI launcher at click-time (brew symlink first, then dev install),
 # falling back to `lunchbot gui`, and finally a helpful alert if nothing's found.
+#
+# --prefs throughout: opening the app from Finder, Launchpad or the Dock means
+# "show me Lunchbot", so it puts the sandwich in the menu bar and opens
+# Preferences. If the menu-bar app is already running, that copy keeps the icon
+# and this one only opens the window (see gui/app.py's instance lock).
 _LAUNCHER_SCRIPT = """\
 #!/bin/sh
 for c in /opt/homebrew/bin/lunchbot-gui "$HOME/.local/bin/lunchbot-gui"; do
-  [ -x "$c" ] && exec "$c"
+  [ -x "$c" ] && exec "$c" --prefs
 done
-if command -v lunchbot-gui >/dev/null 2>&1; then exec lunchbot-gui; fi
-if command -v lunchbot >/dev/null 2>&1; then exec lunchbot gui; fi
+if command -v lunchbot-gui >/dev/null 2>&1; then exec lunchbot-gui --prefs; fi
+if command -v lunchbot >/dev/null 2>&1; then exec lunchbot gui --prefs; fi
 exec /usr/bin/osascript -e 'display alert "Lunchbot" message "lunchbot is not on your PATH. Install it (brew install ... / ./install.sh) and try again."'
 """
 

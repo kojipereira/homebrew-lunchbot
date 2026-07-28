@@ -1,6 +1,11 @@
-"""Menu-bar app (rumps). Runs from the Homebrew venv, kept alive by the
+"""Menu-bar app (rumps). Runs from the Homebrew venv, started at login by the
 com.lunchbot.gui LaunchAgent. Every action delegates to the same functions the
 CLI uses — this file is pure presentation.
+
+Only one copy ever runs (see [singleton.py]): the login agent, a double-click on
+Lunchbot.app and `lunchbot gui` all come through main(), and whichever loses the
+race hands its request to the winner and exits. `--prefs` means "and open the
+preferences window", which is what opening Lunchbot.app does.
 
 rumps is imported lazily so the module stays importable (and the package stays
 testable) on a plain stdlib interpreter that has no rumps installed.
@@ -8,6 +13,7 @@ testable) on a plain stdlib interpreter that has no rumps installed.
 
 from __future__ import annotations
 
+import argparse
 import atexit
 import logging
 import os
@@ -16,7 +22,7 @@ import sys
 import threading
 from datetime import datetime, timedelta
 
-from .. import agent, setup_core
+from .. import agent, paths, setup_core, singleton
 from ..config import ConfigError, favorite_eligible, load_config
 from ..state import (add_skip_date, already_ordered_today, load_state,
                      set_schedule_paused)
@@ -100,7 +106,6 @@ def _spawn_prefs() -> None:
 
 
 def _open_logs() -> None:
-    from .. import paths
     subprocess.Popen(["open", str(paths.LOG_PATH)])
 
 
@@ -117,7 +122,40 @@ def _icon_loads(path: str) -> bool:
         return False
 
 
-def main() -> int:
+def _parse_args(argv=None) -> argparse.Namespace:
+    p = argparse.ArgumentParser(
+        prog="lunchbot-gui", description="Lunchbot's menu-bar app.")
+    p.add_argument("--prefs", action="store_true",
+                   help="open Preferences as well as the menu-bar icon "
+                        "(what opening Lunchbot.app does)")
+    return p.parse_args(argv)
+
+
+# Module-level so the lock lives as long as the process; see singleton.py.
+_instance_lock = None
+
+
+def main(argv=None) -> int:
+    args = _parse_args(argv)
+    # The `lunchbot-gui` console script comes straight here, bypassing the CLI's
+    # setup, so the app's own logging (including the decision below) would
+    # otherwise go nowhere. Idempotent.
+    paths.setup_logging()
+
+    # One menu bar, one sandwich. Login (launchd), Lunchbot.app and `lunchbot
+    # gui` can all land here, so a copy that isn't the first steps aside rather
+    # than adding a second icon — after handing over what the user asked for.
+    global _instance_lock
+    _instance_lock = singleton.InstanceLock("gui")
+    if not _instance_lock.acquire():
+        logging.info("menu-bar app already running; not starting a second copy")
+        if args.prefs:
+            _spawn_prefs()          # the running icon stays; just show the window
+        else:
+            print("Lunchbot is already running — look for 🥪 in the menu bar.",
+                  file=sys.stderr)
+        return 0                    # a clean exit: launchd must not relaunch us
+
     if rumps is None:
         print("The menu-bar app needs rumps (installed in the Homebrew venv). "
               "Run `lunchbot doctor` for details.", file=sys.stderr)
@@ -128,7 +166,7 @@ def main() -> int:
     atexit.register(_stop_schedule_quietly)
 
     class LunchbotApp(rumps.App):
-        def __init__(self):
+        def __init__(self, open_prefs=False):
             # Prefer the Lucide SVG, but only if NSImage can actually render it —
             # a nil/zero-size icon would make the menu-bar item invisible. Always
             # keep the emoji as `title` too, so SOMETHING shows no matter what.
@@ -165,12 +203,17 @@ def main() -> int:
             # the process was launched (double-click app, launchd, or CLI).
             self._policy_timer = rumps.Timer(self._ensure_accessory, 0.3)
             self._policy_timer.start()
-            # First run: no config yet → open Preferences so setup is obvious
-            # instead of leaving the user staring at a "Not set up" menu.
-            try:
-                load_config()
-            except ConfigError:
+            # Opening Lunchbot from Finder/Launchpad/the Dock means "show me
+            # Lunchbot", so it lands in the menu bar *and* opens Preferences.
+            # Same on a first run with no config yet, whoever started us —
+            # better than leaving the user staring at a "Not set up" menu.
+            if open_prefs:
                 _spawn_prefs()
+            else:
+                try:
+                    load_config()
+                except ConfigError:
+                    _spawn_prefs()
 
         def _ensure_accessory(self, timer):
             try:
@@ -191,6 +234,9 @@ def main() -> int:
             self.refresh(None)
 
         def _on_quit(self, sender):
+            # Exits cleanly, which is exactly what the LaunchAgent's
+            # KeepAlive/SuccessfulExit key watches for: quit stays quit until the
+            # next login (or a click on Lunchbot.app).
             _stop_schedule_quietly()
             rumps.quit_application(sender)
 
@@ -280,7 +326,7 @@ def main() -> int:
                     rumps.alert("Lunchbot", f"Couldn't resume: {e}")
             self.refresh(None)
 
-    LunchbotApp().run()
+    LunchbotApp(open_prefs=args.prefs).run()
     return 0
 
 
