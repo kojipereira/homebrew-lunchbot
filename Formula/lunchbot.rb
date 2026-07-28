@@ -3,8 +3,8 @@ class Lunchbot < Formula
 
   desc "Auto-order your weekday lunch on DoorDash, with a Mac menu-bar app"
   homepage "https://github.com/kojipereira/homebrew-lunchbot"
-  url "https://github.com/kojipereira/homebrew-lunchbot/releases/download/v1.1.2/lunchbot-1.1.2.tar.gz"
-  sha256 "5e54d8565ba1a71cc706d2a5393146593be7bcd5b591954a1fbe6a4bc7a91f7e"
+  url "https://github.com/kojipereira/homebrew-lunchbot/releases/download/v1.1.3/lunchbot-1.1.3.tar.gz"
+  sha256 "91201b1efbc93edd9f37949091a0daa787f4e816612c2ccf635a007731310fe7"
   license "MIT"
 
   depends_on "python@3.13"
