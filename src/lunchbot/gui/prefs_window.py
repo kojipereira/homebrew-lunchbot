@@ -42,8 +42,7 @@ from Foundation import (NSCalendar, NSCalendarUnitHour, NSCalendarUnitMinute,
                         NSDateComponents, NSMakeRect, NSObject, NSTimer)
 
 from .. import agent, ddcli, paths, setup_core
-from ..config import (DEFAULT_LEAD_TIERS, DIET_CHOICES, Config,
-                      DesktopConfirmCfg, Favorite, favorite_eligible,
+from ..config import (DEFAULT_LEAD_TIERS, Config, DesktopConfirmCfg, Favorite,
                       load_config, write_config)
 from ..state import set_schedule_paused
 
@@ -463,70 +462,61 @@ class PrefsController(NSObject):
             page.addSubview_(_pos(_label(text, align_right=True),
                                   0, top + 3, LABEL_COL_W, 18, CONTENT_H))
 
-        # Diet
-        diets = list(DIET_CHOICES)
-        cur_diet = prev.diet if prev else "omnivore"
-        row_label("Diet", 6)
-        self.diet_pop = _popup(diets, diets.index(cur_diet) if cur_diet in diets else 0,
-                               width=170)
-        self.diet_pop.setFrame_(_rect(FIELD_X, 4, 170, 25, CONTENT_H))
-        page.addSubview_(self.diet_pop)
-
         # Fulfillment
         ful = prev.fulfillment if prev else "pickup"
-        row_label("Fulfillment", 44)
+        row_label("Fulfillment", 6)
         self.pickup_cb = _checkbox("Pickup", ful in ("pickup", "either"))
-        self.pickup_cb.setFrame_(_rect(FIELD_X, 44, 90, 18, CONTENT_H))
+        self.pickup_cb.setFrame_(_rect(FIELD_X, 6, 90, 18, CONTENT_H))
         self.delivery_cb = _checkbox("Delivery", ful in ("delivery", "either"))
-        self.delivery_cb.setFrame_(_rect(FIELD_X + 96, 44, 90, 18, CONTENT_H))
+        self.delivery_cb.setFrame_(_rect(FIELD_X + 96, 6, 90, 18, CONTENT_H))
         page.addSubview_(self.pickup_cb)
         page.addSubview_(self.delivery_cb)
         page.addSubview_(_pos(_small("Both → whichever each restaurant supports.",
                                      secondary=True),
-                              FIELD_X + 200, 45, 300, 16, CONTENT_H))
+                              FIELD_X + 200, 7, 300, 16, CONTENT_H))
 
         # Address
         self.addr_titles = _unique([KEEP_CURRENT]
                                    + [_addr_label(a) for a in self.addresses])
-        row_label("Order to", 80)
+        row_label("Order to", 42)
         self.addr_pop = _popup(self.addr_titles, self._preselect_addr(),
                                width=CONTENT_W - FIELD_X)
-        self.addr_pop.setFrame_(_rect(FIELD_X, 78, CONTENT_W - FIELD_X, 25, CONTENT_H))
+        self.addr_pop.setFrame_(_rect(FIELD_X, 40, CONTENT_W - FIELD_X, 25, CONTENT_H))
         page.addSubview_(self.addr_pop)
 
         # Lunch time — a real time picker, not a string field.
-        row_label("Lunch time", 118)
+        row_label("Lunch time", 80)
         self.time_picker = NSDatePicker.alloc().initWithFrame_(
-            _rect(FIELD_X, 116, 110, 24, CONTENT_H))
+            _rect(FIELD_X, 78, 110, 24, CONTENT_H))
         self.time_picker.setDatePickerStyle_(DATE_PICKER_TEXTFIELD_AND_STEPPER)
         self.time_picker.setDatePickerElements_(DATE_PICKER_HOUR_MINUTE)
         self.time_picker.setDateValue_(_time_to_date(prev.lunch_time if prev else "12:00"))
         page.addSubview_(self.time_picker)
 
         # Price cap
-        row_label("Max price", 154)
-        page.addSubview_(_pos(_label("$"), FIELD_X, 157, 12, 18, CONTENT_H))
+        row_label("Max price", 116)
+        page.addSubview_(_pos(_label("$"), FIELD_X, 119, 12, 18, CONTENT_H))
         self.price_field = _field((prev.price_cap_cents // 100) if prev else 25)
-        self.price_field.setFrame_(_rect(FIELD_X + 14, 154, 80, 22, CONTENT_H))
+        self.price_field.setFrame_(_rect(FIELD_X + 14, 116, 80, 22, CONTENT_H))
         page.addSubview_(self.price_field)
 
-        page.addSubview_(_separator(0, 196, CONTENT_W, CONTENT_H))
+        page.addSubview_(_separator(0, 158, CONTENT_W, CONTENT_H))
 
         self.work_cb = _checkbox("Require a company work-benefit budget",
                                  prev.work_benefits if prev else True)
-        self.work_cb.setFrame_(_rect(0, 212, 400, 18, CONTENT_H))
+        self.work_cb.setFrame_(_rect(0, 174, 400, 18, CONTENT_H))
         page.addSubview_(self.work_cb)
         page.addSubview_(_pos(_small("Orders fail rather than charge your own card.",
                                      secondary=True),
-                              20, 234, 420, 16, CONTENT_H))
+                              20, 196, 420, 16, CONTENT_H))
 
-        page.addSubview_(_separator(0, 268, CONTENT_W, CONTENT_H))
+        page.addSubview_(_separator(0, 230, CONTENT_W, CONTENT_H))
 
-        page.addSubview_(_pos(_label("Days", bold=True), 0, 284, 100, 18, CONTENT_H))
+        page.addSubview_(_pos(_label("Days", bold=True), 0, 246, 100, 18, CONTENT_H))
         prev_days = set(prev.weekdays) if prev else {1, 2, 3, 4, 5}
         self.day_seg = NSSegmentedControl.segmentedControlWithLabels_trackingMode_target_action_(
             [n for n, _ in DAY_NAMES], NSSegmentSwitchTrackingSelectAny, self, None)
-        self.day_seg.setFrame_(_rect(0, 308, 420, 26, CONTENT_H))
+        self.day_seg.setFrame_(_rect(0, 270, 420, 26, CONTENT_H))
         for i, (_n, num) in enumerate(DAY_NAMES):
             self.day_seg.setSelected_forSegment_(num in prev_days, i)
         page.addSubview_(self.day_seg)
@@ -592,7 +582,6 @@ class PrefsController(NSObject):
             self._warn("Lead-time presets must be positive whole minutes.")
             return None
 
-        diet = self.diet_pop.titleOfSelectedItem()
         favorites = []
         for s, cb, pop, old_minutes in self.store_rows:
             if not cb.state():
@@ -604,7 +593,7 @@ class PrefsController(NSObject):
                 lead = tiers[name.lower()]
             favorites.append(Favorite(
                 store=s["store"], store_id=s["store_id"],
-                reorder_from=s["order_uuid"], diet=diet, lead_minutes=lead))
+                reorder_from=s["order_uuid"], lead_minutes=lead))
         if not favorites:
             self._warn("Pick at least one restaurant.")
             return None
@@ -641,7 +630,7 @@ class PrefsController(NSObject):
             addr_id, addr_str = a["address_id"], a.get("printable_address", "")
 
         return Config(
-            diet=diet, fulfillment=fulfillment, price_cap_cents=price_cents,
+            fulfillment=fulfillment, price_cap_cents=price_cents,
             dry_run=(self.prev.dry_run if self.prev else False),
             work_benefits=bool(self.work_cb.state()),
             default_tip_cents=(self.prev.default_tip_cents if self.prev else 0),
@@ -680,7 +669,7 @@ class PrefsController(NSObject):
     @objc.python_method
     def _save_worker(self, cfg, addr_id, q):
         try:
-            total = (1 if self.addr_changed else 0) + len(cfg.favorites) + 3
+            total = (1 if self.addr_changed else 0) + len(cfg.favorites) + 2
             q.put(("max", total))
             done = 0
 
@@ -708,13 +697,6 @@ class PrefsController(NSObject):
                 q.put(("done", False, f"No restaurant supports {cfg.fulfillment}.", ""))
                 return
             cfg.favorites = kept
-
-            q.put(("text", f"Confirming a {cfg.diet} diet is covered…"))
-            if not any(favorite_eligible(f.diet, cfg.diet) for f in cfg.favorites):
-                q.put(("done", False, f"No restaurant satisfies a {cfg.diet} diet.", ""))
-                return
-            done += 1
-            q.put(("value", done))
 
             q.put(("text", "Writing your configuration…"))
             write_config(cfg)

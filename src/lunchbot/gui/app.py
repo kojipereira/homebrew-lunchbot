@@ -23,7 +23,7 @@ import threading
 from datetime import datetime, timedelta
 
 from .. import agent, paths, setup_core, singleton
-from ..config import ConfigError, favorite_eligible, load_config
+from ..config import ConfigError, load_config
 from ..state import (add_skip_date, already_ordered_today, load_state,
                      set_schedule_paused)
 
@@ -261,7 +261,7 @@ def main(argv=None) -> int:
                 self.order_menu.clear()
             try:
                 cfg = load_config()
-                favs = [f for f in cfg.favorites if favorite_eligible(f.diet, cfg.diet)]
+                favs = list(cfg.favorites)
             except ConfigError:
                 favs = []
             if not favs:

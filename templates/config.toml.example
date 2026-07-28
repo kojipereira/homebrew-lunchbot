@@ -2,7 +2,6 @@
 # from your own DoorDash order history — you rarely edit it by hand.
 # Mutable data (skip_dates, rotation cursor, order log) lives in state.json.
 
-diet = "vegan"              # vegan | vegetarian | omnivore
 fulfillment = "either"      # pickup | delivery | either (both → best per restaurant)
 price_cap_cents = 2500      # skip any order whose total exceeds this
 dry_run = false             # true = preview only, never submit
@@ -25,20 +24,18 @@ enabled = true
 timeout_seconds = 300
 on_timeout = "abort"        # abort | approve
 
-# A favorite is eligible when its `diet` is at least as strict as yours:
-# a vegan order suits a vegetarian/omnivore; a vegetarian order suits an omnivore.
+# Each favorite reorders one of your own past orders, so whatever you ate then
+# is what lunchbot orders now.
 # NOTE: store_id and reorder_from are placeholders. `lunchbot setup` fills these
 # in from YOUR own DoorDash order history — don't copy someone else's.
 [[favorites]]
 store = "Example Noodle Bar"
 store_id = "00000000"
 reorder_from = "00000000-0000-0000-0000-000000000000"
-diet = "vegan"
 lead_minutes = 15           # fires at 11:45 for a 12:00 lunch
 
 [[favorites]]
 store = "Example Salad Co"
 store_id = "11111111"
 reorder_from = "11111111-1111-1111-1111-111111111111"
-diet = "vegan"
 lead_minutes = 60           # slower kitchen → order at 11:00

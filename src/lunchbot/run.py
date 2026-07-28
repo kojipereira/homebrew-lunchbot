@@ -1,5 +1,5 @@
-"""The daily job launchd fires: pick a diet-eligible favorite whose lead tier
-matches the current time, walk it through preview/confirm/submit."""
+"""The daily job launchd fires: pick a favorite whose lead tier matches the
+current time, walk it through preview/confirm/submit."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import random
 from datetime import date, datetime
 
 from . import ddcli
-from .config import Config, Favorite, favorite_eligible
+from .config import Config, Favorite
 from .order import delete_cart, prepare_candidate, submit_and_record
 from .state import already_ordered_today
 from .ui import ask_retry, desktop_confirm, notify
@@ -25,8 +25,6 @@ def current_lead_minutes(now: datetime, lunch_time: str) -> int:
 def get_pool(cfg: Config, lead_minutes_now: int | None) -> list[tuple[int, Favorite]]:
     out = []
     for i, f in enumerate(cfg.favorites):
-        if not favorite_eligible(f.diet, cfg.diet):
-            continue
         if lead_minutes_now is not None and abs(f.lead_minutes - lead_minutes_now) > LEAD_TIME_TOLERANCE_MIN:
             continue
         out.append((i, f))
@@ -73,8 +71,8 @@ def run(cfg: Config, state: dict, force_pick: str | None, dry_run_override: bool
             candidate = prepare_candidate(cfg, fav)
             if candidate is None:
                 if ask_retry("Lunchbot: couldn't order",
-                             f"Couldn't prepare {fav.store} right now (unavailable, over "
-                             "your cap, or diet mismatch). Try again?"):
+                             f"Couldn't prepare {fav.store} right now (unavailable "
+                             "or over your cap). Try again?"):
                     continue
                 raise RuntimeError(f"{fav.store} failed guards — see log")
         cart_uuid, items, line_items, total_cents, fulfillment, budget, team_id = candidate
@@ -116,7 +114,7 @@ def run(cfg: Config, state: dict, force_pick: str | None, dry_run_override: bool
                 logging.info("no favorite is orderable right now")
                 if ask_retry("Lunchbot: couldn't order",
                              "None of your restaurants are orderable right now "
-                             "(unavailable, over your cap, or diet mismatch). Try again?"):
+                             "(unavailable or over your cap). Try again?"):
                     fail_streak = 0
                     random.shuffle(pool)
                     idx = 0

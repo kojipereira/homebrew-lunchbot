@@ -1,4 +1,4 @@
-"""Round-trip + diet-scan tests. Run with the resolved interpreter:
+"""Config round-trip tests. Run with the resolved interpreter:
     PYTHONPATH=src python3.13 tests/test_config.py
 Exits non-zero on failure. No test framework (stdlib only)."""
 
@@ -23,16 +23,16 @@ def check(cond, msg):
 
 def test_roundtrip():
     cfg = C.Config(
-        diet="vegan", fulfillment="either", price_cap_cents=2500, work_benefits=True,
+        fulfillment="either", price_cap_cents=2500, work_benefits=True,
         lunch_time="12:00", weekdays=[1, 2, 4, 5], lead_tiers={"fast": 10, "normal": 25, "slow": 45},
         favorites=[
             # Apostrophe in the store name + a bareword-looking UUID: the two
             # values the plan calls out as breaking a naive TOML writer.
             C.Favorite(store="Joe's Diner", store_id="99999999",
                        reorder_from="00000000-0000-0000-0000-000000000000",
-                       diet="vegan", lead_minutes=15),
+                       lead_minutes=15),
             C.Favorite(store='Weird "Quoted" Cafe', store_id="1",
-                       reorder_from="abc-123", diet="vegetarian", lead_minutes=60),
+                       reorder_from="abc-123", lead_minutes=60),
         ],
     )
     with tempfile.TemporaryDirectory() as d:
@@ -43,36 +43,39 @@ def test_roundtrip():
     check(back.favorites[0].reorder_from == "00000000-0000-0000-0000-000000000000",
           "UUID round-trips as string")
     check(back.favorites[1].store == 'Weird "Quoted" Cafe', "embedded quotes round-trip")
-    check(back.diet == "vegan" and back.weekdays == [1, 2, 4, 5], "scalars round-trip")
+    check(back.weekdays == [1, 2, 4, 5], "scalars round-trip")
     check(back.favorites[1].lead_minutes == 60, "lead_minutes round-trips")
     check(back.fulfillment == "either", "fulfillment=either round-trips")
     check(back.lead_tiers == {"fast": 10, "normal": 25, "slow": 45}, "lead_tiers round-trip")
 
 
-def test_diet_scan():
-    # Word-boundary: these are vegan-safe despite containing blocklist substrings.
-    safe = [{"name": "Eggplant Parm-free Bowl"}, {"name": "Butternut Squash Soup"},
-            {"name": "Veggie Hamburger-style Patty"}]
-    check(C.diet_scan(safe, "vegan") == [], "word-boundary avoids eggplant/butternut false positives")
-    # Real hits.
-    check(C.diet_scan([{"name": "Grilled Chicken Wrap"}], "vegan"), "chicken flagged for vegan")
-    check(C.diet_scan([{"name": "Cheese Pizza"}], "vegan"), "cheese flagged for vegan")
-    check(C.diet_scan([{"name": "Cheese Pizza"}], "vegetarian") == [],
-          "cheese allowed for vegetarian")
-    check(C.diet_scan([{"name": "Tuna Melt"}], "vegetarian"), "fish flagged for vegetarian")
-    check(C.diet_scan([{"name": "Grilled Chicken"}], "omnivore") == [], "omnivore scans nothing")
+def test_legacy_diet_keys_ignored():
+    """Configs written before diet was dropped must still load — the stale
+    `diet` keys are simply ignored, not rejected."""
+    legacy = """
+diet = "vegan"
+fulfillment = "pickup"
+lunch_time = "12:00"
 
-
-def test_eligibility():
-    check(C.favorite_eligible("vegan", "vegetarian"), "vegan order ok for vegetarian")
-    check(not C.favorite_eligible("vegetarian", "vegan"), "vegetarian order NOT ok for vegan")
-    check(C.favorite_eligible("omnivore", "omnivore"), "omnivore ok for omnivore")
+[[favorites]]
+store = "Old Favorite"
+store_id = "1"
+reorder_from = "abc-123"
+diet = "vegetarian"
+lead_minutes = 45
+"""
+    with tempfile.TemporaryDirectory() as d:
+        p = Path(d) / "config.toml"
+        p.write_text(legacy)
+        cfg = C.load_config(p)
+    check(cfg.favorites[0].store == "Old Favorite", "legacy config with diet keys loads")
+    check(cfg.favorites[0].lead_minutes == 45, "legacy lead_minutes survives")
+    check(not hasattr(cfg, "diet"), "Config no longer carries a diet field")
 
 
 if __name__ == "__main__":
     test_roundtrip()
-    test_diet_scan()
-    test_eligibility()
+    test_legacy_diet_keys_ignored()
     if failures:
         print(f"\n{len(failures)} failure(s)")
         sys.exit(1)

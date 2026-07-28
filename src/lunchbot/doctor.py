@@ -7,7 +7,7 @@ import subprocess
 import sys
 
 from . import agent, ddcli, paths, singleton
-from .config import ConfigError, favorite_eligible, load_config
+from .config import ConfigError, load_config
 from .ui import tcc_probe
 
 OK, WARN, BAD = "✓", "!", "✗"
@@ -73,9 +73,8 @@ def doctor() -> int:
     # 7. Config
     try:
         cfg = load_config()
-        eligible = [f for f in cfg.favorites if favorite_eligible(f.diet, cfg.diet)]
-        _p(OK, f"config OK — diet={cfg.diet}, {len(cfg.favorites)} favorites "
-               f"({len(eligible)} eligible), lunch {cfg.lunch_time}")
+        _p(OK, f"config OK — {len(cfg.favorites)} favorites, "
+               f"lunch {cfg.lunch_time}")
         times = ", ".join(f"{h:02d}:{m:02d}" for h, m in agent.fire_times(cfg)) or "(none!)"
         _p(OK if agent.fire_times(cfg) else BAD, f"fire times: {times}")
     except ConfigError as e:

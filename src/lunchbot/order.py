@@ -1,6 +1,6 @@
 """Reorder → preview → guard → submit → verify. The load-bearing logic,
-ported from the original single-file script (behavior preserved), with the
-vegan boolean generalized to the diet model and config.yaml→config.toml.
+ported from the original single-file script (behavior preserved), with
+config.yaml→config.toml.
 """
 
 from __future__ import annotations
@@ -9,7 +9,6 @@ import logging
 import time
 from datetime import datetime
 
-from . import config as cfgmod
 from .config import Config, Favorite
 from .ddcli import dd
 from .state import save_state
@@ -186,11 +185,6 @@ def _try_mode(cfg: Config, fav: Favorite, mode: str) -> Candidate | None:
         return None
     if total_cents > cfg.price_cap_cents:
         logging.warning("%s over cap: %d > %d", fav.store, total_cents, cfg.price_cap_cents)
-        delete_cart(cart_uuid)
-        return None
-    hits = cfgmod.diet_scan(items, cfg.diet)
-    if hits:
-        logging.warning("%s failed %s scan: %s", fav.store, cfg.diet, "; ".join(hits))
         delete_cart(cart_uuid)
         return None
     return cart_uuid, items, line_items, total_cents, fulfillment, budget, team_id

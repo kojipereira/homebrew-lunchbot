@@ -49,7 +49,7 @@ def _cmd_status(_args) -> int:
         times = ", ".join(f"{h:02d}:{m:02d}" for h, m in agent.fire_times(cfg))
         wd = ",".join(str(d) for d in cfg.weekdays)
         print(f"schedule: {times or '(none)'} on weekdays {wd} (lunch {cfg.lunch_time})")
-        print(f"diet: {cfg.diet}   dry_run: {cfg.dry_run}   work_benefits: {cfg.work_benefits}")
+        print(f"dry_run: {cfg.dry_run}   work_benefits: {cfg.work_benefits}")
     except ConfigError as e:
         print(f"config: {e}")
     state = load_state()

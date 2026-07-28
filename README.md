@@ -72,7 +72,7 @@ A 🥪 menu-bar icon starts at login (set up for you on install). From it you ca
 - see the next scheduled order time (or **Paused** / **Ordered today ✓**),
 - **Order now** from any favorite,
 - **Skip today**, **Pause**/**Resume** the schedule,
-- open **Preferences…** (restaurants, diet, pickup/delivery, address, times, days),
+- open **Preferences…** (restaurants, pickup/delivery, address, times, days),
 - view logs.
 
 Preferences opens a real Cocoa window — stock AppKit controls throughout
@@ -123,8 +123,8 @@ You set a target `lunch_time` and a `lead_minutes` per restaurant. The agent
 fires at `lunch_time − lead_minutes` for each distinct lead tier, on your chosen
 weekdays. Example: lunch 12:00, a slow kitchen at 60 min → fires 11:00; a fast
 one at 15 min → fires 11:45. At each fire, lunchbot considers only favorites
-whose tier matches the current time and whose diet is compatible with yours, and
-**stops for the day once an order is placed** — so you never get two dialogs.
+whose tier matches the current time, and **stops for the day once an order is
+placed** — so you never get two dialogs.
 
 ## Troubleshooting
 
