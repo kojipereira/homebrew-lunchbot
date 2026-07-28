@@ -2,12 +2,15 @@
 
 Auto-orders your weekday lunch on DoorDash — a rotating list of your favorite
 restaurants, on your terms (pickup or delivery, optional company work-benefit
-budget), with a native confirmation dialog before anything is charged and a
-**Mac menu-bar app** for setup and control.
+budget).
 
 Everything runs on your own Mac (launchd agents) and drives the `dd-cli`
-DoorDash CLI. Nothing is centralized: your login and order history stay on your
-machine.
+DoorDash CLI. 
+
+<img width="767" height="729" alt="Screenshot 2026-07-28 at 12 02 13 PM" src="https://github.com/user-attachments/assets/34439f8e-e6b4-418c-a7ea-c32e91458dd0" />
+
+<img width="747" height="720" alt="Screenshot 2026-07-28 at 12 02 09 PM" src="https://github.com/user-attachments/assets/071d4e59-0c1f-465f-be3a-dbdc9a0d8ace" />
+
 
 ## Requirements
 
