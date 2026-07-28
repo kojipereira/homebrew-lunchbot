@@ -8,10 +8,11 @@ class Lunchbot < Formula
   license "MIT"
 
   depends_on "python@3.13"
-  depends_on "python-tk@3.13" # the preferences window uses Tk
-  depends_on arch: :arm64     # dd-cli (user-supplied) is arm64-only
+  depends_on arch: :arm64 # dd-cli (user-supplied) is arm64-only
 
   # Menu-bar deps (rumps + its pyobjc runtime). Pinned to long-stable releases.
+  # pyobjc also backs the preferences window, which is plain AppKit — there is
+  # no Tk dependency any more.
   # Refresh with:  brew update-python-resources ./Formula/lunchbot.rb
   resource "pyobjc-core" do
     url "https://files.pythonhosted.org/packages/b4/b1/729f7458a63758bd21716648a8abcd9a0c8f2d2e9897763c8a1a1c7fd31b/pyobjc_core-12.2.1.tar.gz"
@@ -41,10 +42,13 @@ class Lunchbot < Formula
         3. If macOS blocks it:  xattr -d com.apple.quarantine $(command -v dd-cli)
         4. Sign in:             dd-cli login
 
-      Then set up lunchbot:
-        lunchbot setup                 # or drive it from the menu bar:
-        lunchbot install-gui-agent     # auto-start the menu-bar app at login
-        lunchbot install-app           # a double-clickable Lunchbot.app in ~/Applications
+      Then just run:
+        lunchbot setup
+
+      That also creates Lunchbot.app in ~/Applications and starts the menu-bar
+      app (now and at every login) — nothing else to install by hand. Homebrew
+      can't do it during `brew install` itself: post-install runs in a sandbox
+      that can't touch your home directory, so the first lunchbot command does.
 
       (First launch of Lunchbot.app: right-click -> Open once to clear Gatekeeper.)
 

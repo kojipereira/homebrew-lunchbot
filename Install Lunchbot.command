@@ -24,8 +24,9 @@ else
 fi
 
 # Register the menu-bar app + a clickable app icon, then open preferences.
-lunchbot install-gui-agent || true
-lunchbot install-app || true
+# (`bootstrap` is what every lunchbot command runs on its own after an install
+# or upgrade; calling it here makes the double-click path explicit and ordered.)
+lunchbot bootstrap || true
 
 printf '\n  ✅  Installed.\n'
 echo "     • A 🥪 icon is now in your menu bar (top-right)."
