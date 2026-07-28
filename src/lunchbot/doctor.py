@@ -6,7 +6,7 @@ from __future__ import annotations
 import subprocess
 import sys
 
-from . import agent, ddcli, paths
+from . import agent, ddcli, paths, singleton
 from .config import ConfigError, favorite_eligible, load_config
 from .ui import tcc_probe
 
@@ -97,8 +97,16 @@ def doctor() -> int:
         _p(OK, "AppKit present (preferences window can open)")
     except ImportError:
         _p(WARN, "pyobjc missing — preferences window unavailable (use `lunchbot setup`)")
+    # Two separate questions since quitting the app is now respected: is it
+    # registered to start at login, and is it up right now? The instance lock
+    # answers the second for any copy, however it was started.
     _p(OK if agent.gui_is_loaded() else WARN,
-       "menu-bar app running" if agent.gui_is_loaded() else "menu-bar app not running (`lunchbot bootstrap`)")
+       "menu-bar app starts at login" if agent.gui_is_loaded()
+       else "menu-bar app not registered for login (`lunchbot bootstrap`)")
+    up = singleton.is_held("gui")
+    _p(OK if up else WARN,
+       "menu-bar app running" if up
+       else "menu-bar app not running (open Lunchbot.app, or log out and back in)")
 
     # 9b. Finder-visible app bundle
     from . import appbundle

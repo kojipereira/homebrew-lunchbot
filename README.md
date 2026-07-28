@@ -78,6 +78,15 @@ follows system appearance, Dark Mode, your accent colour, and VoiceOver with no
 theming of its own. Saving writes your config and reschedules the daily agent.
 The confirmation you approve at lunchtime is a native macOS dialog too.
 
+**Opening it from Launchpad, Finder or the Dock** puts the 🥪 in the menu bar and
+opens Preferences — that's what clicking `Lunchbot.app` is for. If Lunchbot is
+already running you keep the one icon; the click just brings Preferences forward.
+
+**Quit means quit.** **Quit Lunchbot** closes the app and it stays closed — the
+LaunchAgent brings it back only if it crashed, and it starts again at your next
+login. To stop it starting at login too: `lunchbot uninstall-gui-agent` (open
+`Lunchbot.app` any time to bring it back).
+
 ## Everyday use (CLI equivalents)
 
 ```sh
@@ -134,6 +143,13 @@ Run `lunchbot doctor` first — it checks all of the below.
   the Homebrew venv — `lunchbot doctor` says if it's missing. Meanwhile
   `lunchbot setup` covers the same ground in the terminal.
 - **Menu-bar icon or Lunchbot.app missing.** `lunchbot bootstrap` re-creates both.
+- **The app reopens itself seconds after you quit it.** An older LaunchAgent —
+  it was registered with `KeepAlive: true`, which relaunches on *any* exit,
+  including a deliberate quit. `lunchbot bootstrap` rewrites it, and any lunchbot
+  command does that for you after an upgrade.
+- **Two sandwiches in the menu bar.** Also an older install: opening
+  `Lunchbot.app` while the app was already running started a second copy. One
+  `Quit` clears the extra; upgrading prevents it (only one copy can run now).
 - **Lunchbot.app shows a generic icon.** An app bundle created before the icon
   shipped. `lunchbot bootstrap` rewrites it; if Finder still draws the old one,
   its cache is stale — log out and back in.
@@ -166,6 +182,15 @@ persist unless you remove them.
 - Two launchd agents: `com.lunchbot.agent` (the daily order) and `com.lunchbot.gui`
   (the menu-bar app). Both target the stable `/opt/homebrew/bin` symlinks, so
   `brew upgrade` never rewrites a plist.
+- The GUI agent keys `KeepAlive` on `SuccessfulExit: false`, so a clean quit is
+  final and only a crash relaunches. `bootstrap.py` compares the installed plist
+  against `agent.generate_gui_plist_bytes()` and rewrites it when they differ —
+  a kickstart alone would leave an older, unquittable plist in place forever.
+- Only one menu-bar app and one preferences window can run, whether started by
+  launchd, `Lunchbot.app` or the CLI. `singleton.py` is an advisory `flock` under
+  the state dir: the kernel releases it however the process dies, so there is no
+  stale lock and no pid to reap. A losing menu-bar copy forwards its `--prefs`
+  request and exits **0** — a non-zero exit would make launchd relaunch it.
 - Config is TOML via `tomllib`; plists are generated with `plistlib`.
 - **The app icon** is authored in Icon Composer at `assets/lunchbot.icon` and
   compiled to `src/lunchbot/resources/Lunchbot.icns`, which `appbundle.py` copies
@@ -177,11 +202,14 @@ persist unless you remove them.
   launches; it just shows Finder's generic icon, which `lunchbot doctor` flags.
 - Tests are stdlib-only scripts — `PYTHONPATH=src python3.13 tests/test_*.py`.
   `test_prefs_window.py` runs the AppKit window against a PyObjC-shaped stub, so
-  it works on any machine; `test_appbundle.py` checks the `.icns` is present and
-  well-formed and that `install_app` wires it into the bundle. It's worth keeping green: PyObjC publishes every
+  it works on any machine. That one is worth keeping green: PyObjC publishes every
   undecorated method of an NSObject subclass as a selector (underscores become
   colons) and refuses an arity mismatch *at import*, so one helper missing
   `@objc.python_method` breaks the whole window rather than one code path.
+  `test_appbundle.py` checks the `.icns` is present and well-formed and that
+  `install_app` wires it into the bundle; `test_gui_launch.py` covers the launch
+  lifecycle (quit stays quit, a stale plist is rewritten, one instance at a time,
+  `--prefs` reaching the app).
 - Distribution is a self-contained Homebrew tap at
   [`kojipereira/homebrew-lunchbot`](https://github.com/kojipereira/homebrew-lunchbot):
   the source, `Formula/lunchbot.rb`, and the release live in one repo.

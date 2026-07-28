@@ -152,9 +152,9 @@ def is_loaded() -> bool:
 
 
 # ---- GUI menu-bar agent -----------------------------------------------------
-# A separate always-on LaunchAgent that keeps the rumps menu-bar app alive and
-# starts it at login. Kept distinct from the ordering agent so a GUI failure can
-# never affect the scheduled `lunchbot run`.
+# A LaunchAgent that starts the rumps menu-bar app at login and brings it back if
+# it dies unexpectedly. Kept distinct from the ordering agent so a GUI failure
+# can never affect the scheduled `lunchbot run`.
 def generate_gui_plist_bytes() -> bytes:
     env = {"PATH": _AGENT_PATH}
     ca = os.environ.get("DD_CLI_CA_BUNDLE")
@@ -162,12 +162,19 @@ def generate_gui_plist_bytes() -> bytes:
         env["DD_CLI_CA_BUNDLE"] = ca
     d = {
         "Label": GUI_LABEL,
+        # No --prefs here: starting at login means "put the sandwich in the menu
+        # bar", never "open a window in someone's face".
         "ProgramArguments": [str(GUI_LAUNCHER)],
         "EnvironmentVariables": env,
         "StandardOutPath": str(GUI_STDOUT_LOG),
         "StandardErrorPath": str(GUI_STDOUT_LOG),
         "RunAtLoad": True,
-        "KeepAlive": True,
+        # Quit means quit. Plain `KeepAlive: true` relaunched the app within
+        # seconds of the Quit menu item, so the icon could not be dismissed at
+        # all; keying on SuccessfulExit respects a clean exit and still restarts
+        # the app if it crashes or is killed. It comes back at the next login
+        # (RunAtLoad), which is what `lunchbot uninstall-gui-agent` turns off.
+        "KeepAlive": {"SuccessfulExit": False},
         "LimitLoadToSessionType": "Aqua",
     }
     return plistlib.dumps(d)
@@ -197,4 +204,20 @@ def restart_gui_agent() -> None:
 
 
 def gui_is_loaded() -> bool:
+    """True when launchd knows the job — i.e. the menu-bar app starts at login.
+    Stays true after a deliberate Quit: the job is registered, just not running.
+    Use singleton.is_held("gui") to ask whether the app is up right now."""
     return _launchctl("print", f"{_domain()}/{GUI_LABEL}").returncode == 0
+
+
+def gui_plist_is_current() -> bool:
+    """True when the installed GUI plist matches what this version generates.
+
+    Installs from before the KeepAlive fix carry `KeepAlive: true`, which
+    relaunches the app the moment you quit it. Kickstarting such a job would
+    keep the old behaviour forever, so bootstrap rewrites the file instead —
+    this is how it tells the difference. Cheap: one small read, no launchctl."""
+    try:
+        return GUI_PLIST_PATH.read_bytes() == generate_gui_plist_bytes()
+    except OSError:
+        return False
