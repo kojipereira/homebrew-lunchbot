@@ -11,7 +11,19 @@
         {
           "image-name" : "Frame 2.svg",
           "name" : "Frame 2"
-        },
+        }
+      ],
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.5
+      },
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.3
+      }
+    },
+    {
+      "layers" : [
         {
           "image-name" : "Frame 1 3.svg",
           "name" : "Frame 1 3"
