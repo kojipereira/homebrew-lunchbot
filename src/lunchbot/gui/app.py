@@ -93,8 +93,9 @@ def _restore_schedule_quietly() -> None:
 
 
 def _spawn_prefs() -> None:
-    """Launch the Tkinter preferences form as its own process (AppKit's run
-    loop and Tk's mainloop cannot share one process)."""
+    """Launch the preferences window as its own process. It's AppKit too, but it
+    wants a regular activation policy and its own NSApplication run loop —
+    neither of which this menu-bar accessory can hand over."""
     subprocess.Popen([sys.executable, "-m", "lunchbot.gui.prefs"])
 
 

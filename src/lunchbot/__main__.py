@@ -1,6 +1,6 @@
-"""CLI dispatch: setup | run | gui | prefs | install-agent | uninstall-agent |
-install-gui-agent | uninstall-gui-agent | pause | resume | test | skip |
-status | logs | doctor."""
+"""CLI dispatch: setup | run | gui | prefs | bootstrap | install-agent |
+uninstall-agent | install-gui-agent | uninstall-gui-agent | pause | resume |
+test | skip | status | logs | doctor."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ import logging
 import sys
 from datetime import date
 
-from . import agent, paths
+from . import agent, bootstrap, paths
 from .config import ConfigError, load_config
 from .state import add_skip_date, load_state
 
@@ -93,6 +93,7 @@ def main(argv=None) -> int:
     sub.add_parser("gui", help="run the menu-bar app (foreground)")
     sub.add_parser("prefs", help="open the preferences window")
     sub.add_parser("doctor", help="health check")
+    sub.add_parser("bootstrap", help="(re)create Lunchbot.app + the menu-bar agent")
     sub.add_parser("install-agent", help="install/refresh the launchd schedule")
     sub.add_parser("uninstall-agent", help="remove the launchd schedule")
     sub.add_parser("install-gui-agent", help="auto-start the menu-bar app at login")
@@ -110,6 +111,11 @@ def main(argv=None) -> int:
     args = parser.parse_args(argv)
     cmd = args.cmd or "setup"
 
+    # A fresh `brew install` can't create ~/Applications/Lunchbot.app or the
+    # menu-bar LaunchAgent itself (Homebrew's post_install sandbox denies $HOME),
+    # so the first command after an install/upgrade does it. Silent and one-shot.
+    bootstrap.auto(cmd)
+
     if cmd == "run":
         return _cmd_run(args)
     if cmd == "setup":
@@ -124,6 +130,10 @@ def main(argv=None) -> int:
     if cmd == "doctor":
         from .doctor import doctor
         return doctor()
+    if cmd == "bootstrap":
+        for line in bootstrap.bootstrap(force=True) or ["nothing to do"]:
+            print(line)
+        return 0
     if cmd == "install-agent":
         cfg = _load_cfg_or_die()
         agent.migrate_legacy()

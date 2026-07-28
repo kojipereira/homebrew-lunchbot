@@ -1,0 +1,124 @@
+name: Release assets
+
+# Guarantees every release carries BOTH tarballs, however it was created —
+# ./release.sh, a tag push, or the "Draft a new release" button on github.com:
+#
+#   lunchbot-<ver>.tar.gz            pip-installable source; the formula's `url`
+#   Lunchbot-Installer-<ver>.tar.gz  the download-and-double-click installer
+#
+# v1.1.4 and v1.1.5 shipped with only the first one, which quietly broke the
+# no-terminal install path for anyone who landed on the Releases page.
+#
+# Backfill an older release by hand:
+#   Actions → Release assets → Run workflow → tag: v1.1.4
+
+on:
+  release:
+    types: [published, created]
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to build and attach assets to (e.g. v1.1.4)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-assets-${{ github.event.release.tag_name || inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  attach:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve tag and version
+        id: meta
+        run: |
+          tag="${{ github.event.release.tag_name || inputs.tag || github.ref_name }}"
+          case "$tag" in
+            v*) ;;
+            *) echo "::error::expected a v-prefixed tag, got '$tag'"; exit 1 ;;
+          esac
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.meta.outputs.tag }}
+          fetch-depth: 0
+
+      - name: Use a build script that accepts an explicit version
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          # Older tags predate `./build.sh <version>`, and their trees can even
+          # carry the wrong VERSION (v1.1.4 tags a tree that says 1.1.2). Take
+          # the current build script so a backfill still produces correctly
+          # named, correctly stamped artifacts from the tagged source.
+          if ! grep -q 'VERSION="${1:-' build.sh; then
+            echo "tagged build.sh predates version-arg support — using $DEFAULT_BRANCH's"
+            git fetch --depth=1 origin "$DEFAULT_BRANCH"
+            git checkout FETCH_HEAD -- build.sh
+          fi
+          echo "tagged VERSION file says: $(cat VERSION)"
+
+      - name: Build both tarballs
+        run: sh build.sh "${{ steps.meta.outputs.version }}"
+
+      - name: Ensure a release exists for the tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.meta.outputs.tag }}
+        run: |
+          if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "no release for $TAG yet — creating one"
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" \
+              --title "lunchbot ${TAG#v}" --generate-notes
+          fi
+
+      - name: Attach any missing asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.meta.outputs.tag }}
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          set -eu
+          # Deliberately no --clobber. The formula pins the sha256 of
+          # lunchbot-<ver>.tar.gz, and a rebuild is not byte-identical, so
+          # replacing a published source tarball would break `brew install`.
+          present="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" \
+                       --json assets --jq '.assets[].name')"
+          for f in "dist/lunchbot-$VERSION.tar.gz" \
+                   "dist/Lunchbot-Installer-$VERSION.tar.gz"; do
+            name="$(basename "$f")"
+            if printf '%s\n' "$present" | grep -Fqx "$name"; then
+              echo "· $name already attached — left untouched"
+            else
+              echo "· uploading $name"
+              gh release upload "$TAG" "$f" --repo "$GITHUB_REPOSITORY"
+            fi
+          done
+
+      - name: Verify the release carries both assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.meta.outputs.tag }}
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          set -eu
+          present="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" \
+                       --json assets --jq '.assets[].name')"
+          rc=0
+          for name in "lunchbot-$VERSION.tar.gz" "Lunchbot-Installer-$VERSION.tar.gz"; do
+            if printf '%s\n' "$present" | grep -Fqx "$name"; then
+              echo "✓ $name"
+            else
+              echo "::error::$TAG is missing $name"
+              rc=1
+            fi
+          done
+          exit $rc

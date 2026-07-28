@@ -17,6 +17,9 @@ done
 rm -f "$HOME/.local/bin/lunchbot" "$HOME/.local/bin/lunchbot-gui" && echo "removed launchers"
 rm -rf "$DATA" && echo "removed $DATA"
 rm -rf "$HOME/Applications/Lunchbot.app" 2>/dev/null && echo "removed Lunchbot.app" || true
+# Forget that this version was provisioned, so a reinstall re-creates the app
+# bundle and the menu-bar agent instead of assuming they're still there.
+rm -f "${XDG_STATE_HOME:-$HOME/.local/state}/lunchbot/bootstrap.json"
 
 if [ "${1:-}" = "--purge" ]; then
   rm -rf "$HOME/.config/lunchbot" "$HOME/.local/state/lunchbot"

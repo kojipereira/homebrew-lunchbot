@@ -93,12 +93,19 @@ def doctor() -> int:
     except ImportError:
         _p(WARN, "rumps not installed — menu-bar app unavailable (install via Homebrew)")
     try:
-        import tkinter  # noqa: F401
-        _p(OK, "Tk present (preferences window can open)")
+        import AppKit  # noqa: F401
+        _p(OK, "AppKit present (preferences window can open)")
     except ImportError:
-        _p(WARN, "Tk missing — preferences window unavailable (`brew install python-tk@3.13`)")
+        _p(WARN, "pyobjc missing — preferences window unavailable (use `lunchbot setup`)")
     _p(OK if agent.gui_is_loaded() else WARN,
-       "menu-bar app running" if agent.gui_is_loaded() else "menu-bar app not running (`lunchbot install-gui-agent`)")
+       "menu-bar app running" if agent.gui_is_loaded() else "menu-bar app not running (`lunchbot bootstrap`)")
+
+    # 9b. Finder-visible app bundle
+    from . import appbundle
+    app_path = appbundle.DEFAULT_APP_DIR / f"{appbundle.APP_NAME}.app"
+    _p(OK if app_path.exists() else WARN,
+       f"Lunchbot.app at {app_path}" if app_path.exists()
+       else f"no Lunchbot.app in {appbundle.DEFAULT_APP_DIR} (`lunchbot bootstrap`)")
 
     # 10. Log dir writable
     try:

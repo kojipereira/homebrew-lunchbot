@@ -46,17 +46,25 @@ brew install kojipereira/lunchbot/lunchbot
 (Shorthand for `brew tap kojipereira/lunchbot && brew install lunchbot`.) Then:
 
 ```sh
-lunchbot setup                 # terminal wizard, or…
-lunchbot install-gui-agent     # menu-bar app, auto-starts at login
-lunchbot install-app           # a double-clickable Lunchbot.app in ~/Applications
+lunchbot setup
 ```
 
-Either way you'll need dd-cli (below). `install-app` drops a **Lunchbot.app** in
-`~/Applications` you can double-click, drag to the Dock, or keep on the Desktop.
+That's the whole thing. The first lunchbot command after an install or upgrade
+also drops a **Lunchbot.app** in `~/Applications` (double-click it, drag it to
+the Dock) and registers the 🥪 menu-bar app so it starts now and at every login
+— you don't run `install-app` or `install-gui-agent` yourself.
+
+Homebrew can't do that during `brew install`: `post_install` runs in a sandbox
+that calls `deny_read_home`, so a formula physically cannot write to
+`~/Applications` or `~/Library/LaunchAgents`. lunchbot provisions itself instead,
+once per version, on the way into its next command. `lunchbot bootstrap` redoes
+it on demand.
+
+Either way you'll need dd-cli (below).
 
 ## The menu-bar app
 
-`lunchbot install-gui-agent` starts a 🥪 menu-bar icon at login. From it you can:
+A 🥪 menu-bar icon starts at login (set up for you on install). From it you can:
 
 - see the next scheduled order time (or **Paused** / **Ordered today ✓**),
 - **Order now** from any favorite,
@@ -64,15 +72,18 @@ Either way you'll need dd-cli (below). `install-app` drops a **Lunchbot.app** in
 - open **Preferences…** (restaurants, diet, pickup/delivery, address, times, days),
 - view logs.
 
-Preferences opens a native window; saving it writes your config and reschedules
-the daily agent. The daily confirmation you approve at lunchtime is a native
-macOS dialog either way.
+Preferences opens a real Cocoa window — stock AppKit controls throughout
+(checkboxes, pop-up buttons, a time picker, a segmented day picker), so it
+follows system appearance, Dark Mode, your accent colour, and VoiceOver with no
+theming of its own. Saving writes your config and reschedules the daily agent.
+The confirmation you approve at lunchtime is a native macOS dialog too.
 
 ## Everyday use (CLI equivalents)
 
 ```sh
 lunchbot setup            # re-run any time to change preferences
 lunchbot prefs            # open just the preferences window
+lunchbot bootstrap        # re-create Lunchbot.app + the menu-bar agent
 lunchbot status           # schedule + last order
 lunchbot doctor           # health check (run this first if something's off)
 lunchbot run --dry-run    # preview today's pick without ordering
@@ -119,9 +130,10 @@ Run `lunchbot doctor` first — it checks all of the below.
 - **Certificate/TLS errors** on a corporate network (Zscaler/Netskope-style
   proxy): set `DD_CLI_CA_BUNDLE` to your CA PEM. lunchbot passes it through to
   the scheduled agent.
-- **Preferences window won't open.** It needs Tk: `brew install python-tk@3.13`
-  (normally installed as a dependency). Meanwhile use `lunchbot setup`.
-- **Menu-bar icon missing.** `lunchbot install-gui-agent` (re)registers it.
+- **Preferences window won't open.** It needs pyobjc, which comes with rumps in
+  the Homebrew venv — `lunchbot doctor` says if it's missing. Meanwhile
+  `lunchbot setup` covers the same ground in the terminal.
+- **Menu-bar icon or Lunchbot.app missing.** `lunchbot bootstrap` re-creates both.
 - **Laptop asleep at the fire time.** macOS coalesces missed timers into one run
   at wake; if you wake past lunch, no tier matches and nothing orders — the log
   says so.
@@ -144,25 +156,45 @@ persist unless you remove them.
 
 ## Notes for maintainers
 
-- The **ordering path imports no GUI dependencies** (no rumps, no Tk) — a menu-bar
-  or preferences problem can never stop lunch from being ordered.
+- The **ordering path imports no GUI dependencies** (no rumps, no AppKit) — a
+  menu-bar or preferences problem can never stop lunch from being ordered.
+  `gui/prefs.py` is a stub that lazily imports `gui/prefs_window.py`, which is
+  the only module that touches AppKit at import time.
 - Two launchd agents: `com.lunchbot.agent` (the daily order) and `com.lunchbot.gui`
   (the menu-bar app). Both target the stable `/opt/homebrew/bin` symlinks, so
   `brew upgrade` never rewrites a plist.
 - Config is TOML via `tomllib`; plists are generated with `plistlib`.
+- Tests are stdlib-only scripts — `PYTHONPATH=src python3.13 tests/test_*.py`.
+  `test_prefs_window.py` runs the AppKit window against a PyObjC-shaped stub, so
+  it works on any machine. It's worth keeping green: PyObjC publishes every
+  undecorated method of an NSObject subclass as a selector (underscores become
+  colons) and refuses an arity mismatch *at import*, so one helper missing
+  `@objc.python_method` breaks the whole window rather than one code path.
 - Distribution is a self-contained Homebrew tap at
   [`kojipereira/homebrew-lunchbot`](https://github.com/kojipereira/homebrew-lunchbot):
   the source, `Formula/lunchbot.rb`, and the release live in one repo.
 - Cutting a release is one command: **`./release.sh X.Y.Z`** — it bumps the
-  version everywhere, builds both tarballs, creates the GitHub release (uploading
-  the pip-installable source tarball *and* the `Lunchbot-Installer-<ver>.tar.gz`
-  double-click bundle), patches the formula's `url` + `sha256`, and opens a PR
-  (merge it to publish). Refresh the rumps/pyobjc pins with
-  `brew update-python-resources ./Formula/lunchbot.rb` when those change.
+  version everywhere, builds both tarballs, patches the formula's `url` +
+  `sha256`, commits that on a `release-vX.Y.Z` branch, creates the GitHub release
+  **tagged on that branch commit**, and opens a PR (merge it to publish). Refresh
+  the rumps/pyobjc pins with `brew update-python-resources ./Formula/lunchbot.rb`
+  when those change.
 - `build.sh` emits two artifacts: `lunchbot-<ver>.tar.gz` (source, consumed by the
   formula) and `Lunchbot-Installer-<ver>.tar.gz` (the double-click installer for
   Option A). The installer's `.command` files shell out to `brew`, so Homebrew and
-  a public tap are still required.
+  a public tap are still required. `./build.sh <version>` stamps an explicit
+  version through the staged copy, which is how an old tag gets backfilled.
+- **Every release must carry both assets.** Three things enforce it: `build.sh`
+  fails if either artifact is missing, `release.sh` verifies the published release
+  before exiting 0, and `.github/workflows/release-assets.yml` re-checks on every
+  tag push and published release — attaching whatever is absent. Repair an old
+  release with `./release.sh <ver> --assets-only`, or Actions → *Release assets* →
+  *Run workflow* → the tag. Nothing ever re-uploads an asset that already exists:
+  the formula pins the source tarball's `sha256` and rebuilds aren't
+  byte-identical.
+- Tag the *release branch*, not `main`. Tagging main before the bump PR merges is
+  what left `v1.1.4` and `v1.1.5` pointing at trees that still said `1.1.2` and
+  `1.1.3`; `release.sh` now passes `--target "$BR"` to avoid it.
 - Point users to dd-cli via `LUNCHBOT_DDCLI_URL` (or edit `DDCLI_GET_URL` in
   `src/lunchbot/ddcli.py`).
 - **The tap repo must be public** for others to `brew install` it — a private
