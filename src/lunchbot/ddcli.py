@@ -50,6 +50,22 @@ class TlsError(DdError):
     pass
 
 
+def _raise_command_error(returncode: int, stderr: str) -> None:
+    """Turn actionable dd-cli failures into errors the app can recover from."""
+    detail = stderr or "dd-cli returned no error details"
+    message = detail.lower()
+    if any(word in message for word in
+           ("login", "auth", "unauthorized", "401", "token", "expired", "sign in")):
+        raise NotLoggedIn("Your DoorDash sign-in has expired.")
+    if any(word in message for word in
+           ("certificate", "ssl", "tls", "self-signed", "self signed", "ca ")):
+        raise TlsError(
+            "DoorDash could not be reached because of a certificate error. "
+            "Your company network may require DD_CLI_CA_BUNDLE."
+        )
+    raise DdError(f"dd-cli failed ({returncode}): {detail}")
+
+
 def which() -> str | None:
     return shutil.which(DDCLI)
 
@@ -61,8 +77,7 @@ def dd(*args: str, timeout: int = 60) -> dict:
     logging.info("exec: %s", " ".join(cmd))
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
     if result.returncode != 0:
-        stderr = (result.stderr or "").strip()
-        raise DdError(f"dd-cli failed ({result.returncode}): {stderr}")
+        _raise_command_error(result.returncode, (result.stderr or "").strip())
     return _unwrap(result.stdout)
 
 
