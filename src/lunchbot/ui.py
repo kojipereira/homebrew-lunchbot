@@ -74,19 +74,39 @@ def build_dialog_body(fav: "Favorite", items: list[dict],
 
 def desktop_confirm(cfg: "Config", fav: "Favorite", items: list[dict],
                     line_items: list[tuple[str, str]], total_cents: int,
-                    fulfillment: str, budget: dict | None, allow_next: bool,
+                    fulfillment: str, budget: dict | None, allow_skip_slot: bool,
+                    allow_shuffle: bool,
                     place_label: str = "Place") -> str:
-    """Return 'Place' | 'Skip' | 'Next' | 'TIMEOUT'."""
+    """Return 'Place' | 'Shuffle' | 'Skip time slot' | 'Skip today' | 'TIMEOUT'."""
     dc = cfg.desktop_confirm
     body = _esc(build_dialog_body(fav, items, line_items, total_cents, fulfillment, budget))
-    buttons = (f'{{"Cancel", "Shuffle", "{place_label}"}}' if allow_next
-               else f'{{"Cancel", "{place_label}"}}')
+    if allow_shuffle and allow_skip_slot:
+        # macOS dialogs permit at most three buttons. Keep Shuffle available and
+        # ask which kind of skip the user wants only after they choose Skip.
+        buttons = f'{{"Skip...", "Shuffle", "{place_label}"}}'
+        skip_prompt = (
+            'if button returned of r is "Skip..." then\n'
+            'set r to display dialog "Skip this time slot or the rest of today?" '
+            'buttons {"Skip time slot", "Skip today"} default button "Skip time slot" '
+            f'with title "Lunchbot" with icon note giving up after {dc.timeout_seconds}\n'
+            'if gave up of r then return "TIMEOUT"\n'
+            'return button returned of r\n'
+            'end if\n'
+        )
+    else:
+        buttons = (f'{{"Skip time slot", "Skip today", "{place_label}"}}'
+                   if allow_skip_slot else
+                   f'{{"Skip today", "Shuffle", "{place_label}"}}' if allow_shuffle else
+                   f'{{"Skip today", "{place_label}"}}')
+        skip_prompt = ""
     core = (
         f'set r to display dialog "{body}" '
         f'buttons {buttons} default button "{place_label}" '
         f'with title "Lunchbot" with icon note '
         f'giving up after {dc.timeout_seconds}\n'
         'if gave up of r then return "TIMEOUT"\n'
+        + skip_prompt
+        +
         'return button returned of r'
     )
     r = _osascript('tell application "System Events" to activate\n' + core,
@@ -102,9 +122,7 @@ def desktop_confirm(cfg: "Config", fav: "Favorite", items: list[dict],
     logging.info("desktop_confirm: %s", raw)
     if raw == place_label:
         return "Place"
-    if raw == "Cancel":
-        return "Skip"
-    if raw in ("Shuffle", "TIMEOUT"):
+    if raw in ("Shuffle", "Skip time slot", "Skip today", "TIMEOUT"):
         return raw
     return "Skip"
 
@@ -127,6 +145,23 @@ def ask_retry(title: str, body: str, timeout: int = 300) -> bool:
     choice = r.stdout.strip()
     logging.info("ask_retry: %s", choice)
     return choice == "Try again"
+
+
+def ask_sign_in(body: str) -> bool:
+    """Offer to start the browser-based DoorDash sign-in flow."""
+    core = (
+        f'set r to display dialog "{_esc(body)}" '
+        'buttons {"Not now", "Sign in"} default button "Sign in" '
+        'with title "Lunchbot: sign in required" with icon caution giving up after 300\n'
+        'if gave up of r then return "TIMEOUT"\n'
+        'return button returned of r'
+    )
+    r = _osascript('tell application "System Events" to activate\n' + core, timeout=330)
+    if r.returncode != 0 and _is_tcc_denied(r.stderr):
+        r = _osascript(core, timeout=330)
+    if r.returncode != 0:
+        return False
+    return r.stdout.strip() == "Sign in"
 
 
 def show_alert(title: str, body: str) -> None:

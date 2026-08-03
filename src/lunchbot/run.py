@@ -10,7 +10,7 @@ from datetime import date, datetime
 from . import ddcli
 from .config import Config, Favorite
 from .order import delete_cart, prepare_candidate, submit_and_record
-from .state import already_ordered_today
+from .state import add_skip_date, already_ordered_today
 from .ui import ask_retry, desktop_confirm, notify
 
 LEAD_TIME_TOLERANCE_MIN = 10
@@ -29,6 +29,18 @@ def get_pool(cfg: Config, lead_minutes_now: int | None) -> list[tuple[int, Favor
             continue
         out.append((i, f))
     return out
+
+
+def has_later_slot(cfg: Config, now: datetime) -> bool:
+    """Whether today's schedule has a firing time after ``now``."""
+    lunch_hour, lunch_minute = (int(x) for x in cfg.lunch_time.split(":"))
+    lunch_minutes = lunch_hour * 60 + lunch_minute
+    current_minutes = now.hour * 60 + now.minute
+    slot_minutes = {
+        (lunch_minutes - favorite.lead_minutes) % (24 * 60)
+        for favorite in cfg.favorites
+    }
+    return any(slot > current_minutes for slot in slot_minutes)
 
 
 def run(cfg: Config, state: dict, force_pick: str | None, dry_run_override: bool) -> None:
@@ -77,7 +89,8 @@ def run(cfg: Config, state: dict, force_pick: str | None, dry_run_override: bool
                 raise RuntimeError(f"{fav.store} failed guards — see log")
         cart_uuid, items, line_items, total_cents, fulfillment, budget, team_id = candidate
         answer = (desktop_confirm(cfg, fav, items, line_items, total_cents, fulfillment,
-                                  budget, allow_next=False, place_label=place_label)
+                                   budget, allow_skip_slot=False, allow_shuffle=False,
+                                   place_label=place_label)
                   if cfg.desktop_confirm.enabled else "Place")
         if answer != "Place":
             delete_cart(cart_uuid)
@@ -125,20 +138,24 @@ def run(cfg: Config, state: dict, force_pick: str | None, dry_run_override: bool
         fail_streak = 0
         cart_uuid, items, line_items, total_cents, fulfillment, budget, team_id = candidate
 
-        # Shuffle is always offered when there's more than one option; it cycles
-        # through the pool and wraps around (3 options: 1→2→3→1→…).
-        allow_next = n > 1
+        allow_skip_slot = has_later_slot(cfg, now)
         answer = (desktop_confirm(cfg, fav, items, line_items, total_cents, fulfillment,
-                                  budget, allow_next=allow_next, place_label=place_label)
-                  if cfg.desktop_confirm.enabled else "Place")
+                                   budget, allow_skip_slot=allow_skip_slot, allow_shuffle=n > 1,
+                                   place_label=place_label)
+                   if cfg.desktop_confirm.enabled else "Place")
 
         if answer == "Shuffle":
             delete_cart(cart_uuid)
             idx = (idx + 1) % n
             continue
-        if answer in ("Skip", "TIMEOUT"):
+        if answer == "Skip today":
             delete_cart(cart_uuid)
-            notify("Lunchbot: skipped", f"{fav.store} — not approved")
+            add_skip_date(today_iso)
+            notify("Lunchbot: skipped today", "No more orders will be offered today")
+            return
+        if answer in ("Skip time slot", "TIMEOUT", "Skip"):
+            delete_cart(cart_uuid)
+            notify("Lunchbot: skipped time slot", f"{fav.store} — not approved")
             return
 
         if dry:
@@ -146,5 +163,5 @@ def run(cfg: Config, state: dict, force_pick: str | None, dry_run_override: bool
             delete_cart(cart_uuid)
             return
         submit_and_record(cfg, state, fav, cart_uuid, total_cents, fulfillment, budget,
-                          team_id, pool_idx, len(pool), today_iso, remember_cursor=True)
+                          team_id, idx, len(pool), today_iso, remember_cursor=True)
         return

@@ -9,7 +9,7 @@ import logging
 import sys
 from datetime import date
 
-from . import agent, bootstrap, paths
+from . import agent, bootstrap, ddcli, paths
 from .config import ConfigError, load_config
 from .state import add_skip_date, load_state
 
@@ -20,25 +20,65 @@ def _load_cfg_or_die():
     except ConfigError as e:
         from .ui import show_alert
         logging.error("config error: %s", e)
-        show_alert("Lunchbot: config error", str(e))
+        show_alert(
+            "Lunchbot needs setup",
+            f"{e}\n\nOpen Lunchbot Preferences or run `lunchbot setup`.\n"
+            f"Config file: {paths.CONFIG_PATH}",
+        )
         print(str(e), file=sys.stderr)
         raise SystemExit(2)
 
 
 def _cmd_run(args) -> int:
     from .run import run
-    from .ui import notify
+    from .ui import ask_retry, ask_sign_in, notify, show_alert
     cfg = _load_cfg_or_die()
     state = load_state()
-    try:
-        run(cfg, state, force_pick=args.pick, dry_run_override=args.dry_run)
-    except Exception as e:  # noqa: BLE001 — top-level guard, must never crash silently
-        logging.exception("run failed")
-        from .ui import show_alert
-        show_alert("Lunchbot failed", str(e))
-        notify("Lunchbot failed", str(e))
-        return 1
-    return 0
+    retried = False
+    sign_in_attempted = False
+    while True:
+        try:
+            run(cfg, state, force_pick=args.pick, dry_run_override=args.dry_run)
+            return 0
+        except ddcli.NotLoggedIn as e:
+            logging.warning("DoorDash sign-in required: %s", e)
+            if sign_in_attempted or not ask_sign_in(
+                    "Your DoorDash session has expired. Lunchbot can open the "
+                    "sign-in flow now, then retry this order."):
+                show_alert(
+                    "Lunchbot couldn't sign in",
+                    "Sign in from the Lunchbot prompt, then try again.\n\n"
+                    f"If it still fails, run `lunchbot doctor`. Log: {paths.LOG_PATH}",
+                )
+                return 1
+            sign_in_attempted = True
+            if ddcli.login_interactive():
+                try:
+                    ddcli.login_probe()
+                    continue
+                except ddcli.DdError:
+                    logging.exception("DoorDash sign-in did not restore access")
+            show_alert(
+                "Lunchbot couldn't sign in",
+                "Finish the DoorDash sign-in in your browser, then try again.\n\n"
+                f"If it still fails, run `lunchbot doctor`. Log: {paths.LOG_PATH}",
+            )
+            return 1
+        except Exception:  # noqa: BLE001 — top-level guard, must never crash silently
+            logging.exception("run failed")
+            if not retried and ask_retry(
+                    "Lunchbot needs attention",
+                    "Lunchbot couldn't complete this order. Try again?\n\n"
+                    f"Details were saved to: {paths.LOG_PATH}"):
+                retried = True
+                continue
+            show_alert(
+                "Lunchbot couldn't complete the order",
+                "Try again from the Lunchbot menu. If it happens again, run "
+                f"`lunchbot doctor`.\n\nLog: {paths.LOG_PATH}",
+            )
+            notify("Lunchbot needs attention", f"See log: {paths.LOG_PATH}")
+            return 1
 
 
 def _cmd_status(_args) -> int:
