@@ -11,7 +11,7 @@ from . import ddcli
 from .config import Config, Favorite
 from .order import delete_cart, prepare_candidate, submit_and_record
 from .state import add_skip_date, already_ordered_today
-from .ui import ask_retry, desktop_confirm, notify
+from .ui import ask_retry, ask_retry_or_skip, desktop_confirm, notify
 
 LEAD_TIME_TOLERANCE_MIN = 10
 
@@ -125,13 +125,21 @@ def run(cfg: Config, state: dict, force_pick: str | None, dry_run_override: bool
             fail_streak += 1
             if fail_streak >= n:  # a full cycle, none preparable
                 logging.info("no favorite is orderable right now")
-                if ask_retry("Lunchbot: couldn't order",
-                             "None of your restaurants are orderable right now "
-                             "(unavailable or over your cap). Try again?"):
+                choice = ask_retry_or_skip(
+                    "Lunchbot: couldn't order",
+                    "None of your restaurants are orderable right now "
+                    "(unavailable or over your cap). Try again, skip this time "
+                    "slot, or skip today?")
+                if choice == "Try again":
                     fail_streak = 0
                     random.shuffle(pool)
                     idx = 0
                     continue
+                if choice == "Skip today":
+                    add_skip_date(today_iso)
+                    notify("Lunchbot: skipped today", "No more orders will be offered today")
+                    return
+                notify("Lunchbot: skipped time slot", "No restaurants were orderable")
                 return
             idx = (idx + 1) % n   # Shuffle wraps: after the last, back to the first
             continue
