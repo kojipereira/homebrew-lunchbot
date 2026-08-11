@@ -317,10 +317,10 @@ class _Comps:
 
 
 _module("AppKit", [
-    "NSAlert", "NSApplication", "NSBox", "NSButton", "NSDatePicker", "NSImage",
-    "NSImageView", "NSMenu", "NSMenuItem", "NSPopUpButton", "NSProgressIndicator",
-    "NSScrollView", "NSSegmentedControl", "NSTextField", "NSView", "NSWindow",
-    "NSWorkspace",
+    "NSAlert", "NSApplication", "NSBezierPath", "NSBox", "NSButton",
+    "NSDatePicker", "NSImage", "NSImageView", "NSMenu", "NSMenuItem",
+    "NSPopUpButton", "NSProgressIndicator", "NSScrollView", "NSSegmentedControl",
+    "NSTextField", "NSView", "NSWindow", "NSWorkspace",
 ], extra={
     "NSApp": lambda: V(),
     "NSFont": _Font, "NSColor": _Color,
@@ -337,6 +337,7 @@ _module("Foundation", [], extra={
     "NSCalendar": _Cal, "NSCalendarUnitHour": 32, "NSCalendarUnitMinute": 64,
     "NSDateComponents": _Comps, "NSObject": NSObject, "NSTimer": _Timer,
     "NSMakeRect": lambda x, y, w, h: (x, y, w, h),
+    "NSMakeSize": lambda w, h: (w, h),
     "NSURL": Cls("NSURL"),
 })
 
