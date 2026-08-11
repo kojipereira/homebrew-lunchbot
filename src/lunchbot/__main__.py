@@ -69,7 +69,7 @@ def _cmd_run(args) -> int:
             if not retried and ask_retry(
                     "Lunchbot needs attention",
                     "Lunchbot couldn't complete this order. Try again?\n\n"
-                    f"Details were saved to: {paths.LOG_PATH}") == "retry":
+                    f"Details were saved to: {paths.LOG_PATH}"):
                 retried = True
                 continue
             show_alert(

@@ -11,7 +11,7 @@ from . import ddcli
 from .config import Config, Favorite
 from .order import delete_cart, prepare_candidate, submit_and_record
 from .state import add_skip_date, already_ordered_today, get_override
-from .ui import ask_retry, desktop_confirm, notify
+from .ui import ask_retry_or_skip, desktop_confirm, notify
 
 LEAD_TIME_TOLERANCE_MIN = 10
 
@@ -87,12 +87,13 @@ def run(cfg: Config, state: dict, force_pick: str | None, dry_run_override: bool
         while candidate is None:
             candidate, reason = prepare_candidate(cfg, fav)
             if candidate is None:
-                choice = ask_retry("Lunchbot: couldn't order",
-                                   f"{fav.store} isn't orderable right now: "
-                                   f"{reason.rstrip('.')}. Try again?", allow_skip=True)
-                if choice == "retry":
+                choice = ask_retry_or_skip(
+                    "Lunchbot: couldn't order",
+                    f"{fav.store} isn't orderable right now: "
+                    f"{reason.rstrip('.')}. Try again?", allow_skip_slot=False)
+                if choice == "Try again":
                     continue
-                if choice == "skip":
+                if choice == "Skip today":
                     add_skip_date(today_iso)
                     notify("Lunchbot: skipped today", f"{fav.store} — {reason}")
                     return
@@ -136,18 +137,21 @@ def run(cfg: Config, state: dict, force_pick: str | None, dry_run_override: bool
             fail_streak += 1
             if fail_streak >= n:  # a full cycle, none preparable
                 logging.info("no favorite is orderable right now")
-                choice = ask_retry("Lunchbot: couldn't order",
-                                   "None of your restaurants are orderable right now "
-                                   f"(last: {fav.store} — {last_reason.rstrip('.')}). "
-                                   "Try again?", allow_skip=True)
-                if choice == "retry":
+                choice = ask_retry_or_skip(
+                    "Lunchbot: couldn't order",
+                    "None of your restaurants are orderable right now "
+                    f"(last: {fav.store} — {last_reason.rstrip('.')}). Try "
+                    "again, skip this time slot, or skip today?")
+                if choice == "Try again":
                     fail_streak = 0
                     random.shuffle(pool)
                     idx = 0
                     continue
-                if choice == "skip":
+                if choice == "Skip today":
                     add_skip_date(today_iso)
                     notify("Lunchbot: skipped today", "No more orders will be offered today")
+                    return
+                notify("Lunchbot: skipped time slot", f"{fav.store} — {last_reason}")
                 return
             idx = (idx + 1) % n   # Shuffle wraps: after the last, back to the first
             continue

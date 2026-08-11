@@ -112,6 +112,41 @@ check(len(overridden) == 1 and overridden[0][0][2].store == "Overridden Pick"
       and overridden[0][1]["remember_cursor"] is False,
       "an override for today forces that favorite via the single-pick path")
 
+
+# When only one favorite matches the current time slot, the dialog must not
+# offer Shuffle at all — there's nothing to shuffle to.
+single_cfg = Config(
+    lunch_time="23:59",
+    favorites=[Favorite("Only choice", "1", "1", lead_minutes=0)],
+)
+seen_allow_shuffle = []
+old_prepare = R.prepare_candidate
+old_confirm = R.desktop_confirm
+old_submit = R.submit_and_record
+old_datetime = R.datetime
+try:
+    class FixedDateTime3(datetime):
+        @classmethod
+        def now(cls):
+            return cls(2026, 8, 3, 23, 59)
+
+    def fake_confirm(*_args, **kwargs):
+        seen_allow_shuffle.append(kwargs.get("allow_shuffle"))
+        return "Place"
+
+    R.datetime = FixedDateTime3
+    R.prepare_candidate = lambda *_args: (candidate, "")
+    R.desktop_confirm = fake_confirm
+    R.submit_and_record = lambda *_args, **_kwargs: None
+    R.run(single_cfg, {"skip_dates": [], "orders": {}}, None, False)
+finally:
+    R.datetime = old_datetime
+    R.prepare_candidate = old_prepare
+    R.desktop_confirm = old_confirm
+    R.submit_and_record = old_submit
+check(seen_allow_shuffle == [False],
+      "a single-restaurant time slot never offers Shuffle")
+
 if failures:
     print(f"\n{len(failures)} failure(s)")
     sys.exit(1)

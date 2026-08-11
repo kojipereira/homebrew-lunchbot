@@ -127,12 +127,39 @@ def desktop_confirm(cfg: "Config", fav: "Favorite", items: list[dict],
     return "Skip"
 
 
-def ask_retry(title: str, body: str, timeout: int = 300, allow_skip: bool = False) -> str:
-    """Show an error. Returns 'retry' | 'skip' | 'cancel' (a timeout counts as
-    'cancel'). With allow_skip, a third 'Skip today' button is offered;
-    without it, only Cancel / Try again are shown and 'skip' is never returned."""
-    buttons = ('{"Skip today", "Cancel", "Try again"}' if allow_skip
-              else '{"Cancel", "Try again"}')
+def ask_retry(title: str, body: str, timeout: int = 300) -> bool:
+    """Show an error with Cancel / Try again. Returns True if the user chose
+    Try again (default button). A timeout or Cancel returns False."""
+    core = (
+        f'set r to display dialog "{_esc(body)}" '
+        f'buttons {{"Cancel", "Try again"}} default button "Try again" '
+        f'with title "{_esc(title)}" with icon caution giving up after {timeout}\n'
+        'if gave up of r then return "TIMEOUT"\n'
+        'return button returned of r'
+    )
+    r = _osascript('tell application "System Events" to activate\n' + core, timeout=timeout + 30)
+    if r.returncode != 0 and _is_tcc_denied(r.stderr):
+        r = _osascript(core, timeout=timeout + 30)
+    if r.returncode != 0:
+        return False
+    choice = r.stdout.strip()
+    logging.info("ask_retry: %s", choice)
+    return choice == "Try again"
+
+
+def ask_retry_or_skip(title: str, body: str, timeout: int = 300,
+                      allow_skip_slot: bool = True) -> str:
+    """Show an error with Try again / [Skip time slot /] Skip today. Returns
+    'Try again' | 'Skip time slot' | 'Skip today'. Without allow_skip_slot —
+    a one-off single-pick request (--pick, an "order tomorrow" override, or
+    Order now), where there's no later tier to defer to — only Try again /
+    Skip today are offered. A timeout behaves like the least destructive
+    option available: Skip time slot when offered, else Skip today."""
+    fallback = "Skip time slot" if allow_skip_slot else "Skip today"
+    valid = (("Try again", "Skip today", "Skip time slot") if allow_skip_slot
+            else ("Try again", "Skip today"))
+    buttons = ('{"Skip today", "Skip time slot", "Try again"}' if allow_skip_slot
+              else '{"Skip today", "Try again"}')
     core = (
         f'set r to display dialog "{_esc(body)}" '
         f'buttons {buttons} default button "Try again" '
@@ -144,14 +171,10 @@ def ask_retry(title: str, body: str, timeout: int = 300, allow_skip: bool = Fals
     if r.returncode != 0 and _is_tcc_denied(r.stderr):
         r = _osascript(core, timeout=timeout + 30)
     if r.returncode != 0:
-        return "cancel"
+        return fallback
     choice = r.stdout.strip()
-    logging.info("ask_retry: %s", choice)
-    if choice == "Try again":
-        return "retry"
-    if choice == "Skip today":
-        return "skip"
-    return "cancel"
+    logging.info("ask_retry_or_skip: %s", choice)
+    return choice if choice in valid else fallback
 
 
 def ask_sign_in(body: str) -> bool:
