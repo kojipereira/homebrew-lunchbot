@@ -83,12 +83,17 @@ def history_stores() -> list[dict]:
     return out
 
 
-def probe_favorite(fulfillment: str, lunch_time: str, fav: Favorite) -> tuple[bool, str]:
+def probe_favorite(fulfillment: str, lunch_time: str, fav: Favorite,
+                   max_pickup_miles: float = 1.0) -> tuple[bool, str]:
     """Live-probe one favorite for the chosen fulfillment mode. Returns
     (keep, note). keep=True with an empty note on success; keep=True with a note
     on an inconclusive error (retry at runtime); keep=False when unsupported.
-    Never leaks a cart."""
-    probe_cfg = Config(fulfillment=fulfillment,
+    Never leaks a cart.
+
+    Takes max_pickup_miles so the probe arbitrates pickup-vs-delivery exactly as
+    the daily run will; probing with a different limit could drop a favorite
+    that would actually be orderable at runtime."""
+    probe_cfg = Config(fulfillment=fulfillment, max_pickup_miles=max_pickup_miles,
                        price_cap_cents=10_000_000, work_benefits=False,
                        lunch_time=lunch_time, favorites=[])
     try:

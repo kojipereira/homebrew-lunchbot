@@ -6,6 +6,7 @@ config.yaml→config.toml.
 from __future__ import annotations
 
 import logging
+import math
 import time
 from datetime import datetime
 
@@ -31,10 +32,28 @@ def extract_total_cents(preview: dict) -> int:
 
 
 def extract_fulfillment(preview: dict) -> str:
+    """The cart's resolved mode — "PICKUP" or "DELIVERY" ("" if unreadable).
+
+    DoorDash omits `fulfillment_type` from the quote entirely on delivery carts
+    (DELIVERY is the proto default, so it never serializes), which means an
+    absent field is DELIVERY, not "unknown". Reading only that field made every
+    delivery attempt look unavailable and quietly reduced "either" to
+    pickup-only. Its sibling `is_consumer_pickup` is always present, so trust
+    that and keep `fulfillment_type` for when DoorDash does send it.
+    """
     try:
-        return preview["quote"]["store_order_cart"]["fulfillment_type"].upper()
+        cart = preview["quote"]["store_order_cart"]
     except (KeyError, TypeError):
         return ""
+    if not isinstance(cart, dict):
+        return ""
+    explicit = cart.get("fulfillment_type")
+    if isinstance(explicit, str) and explicit:
+        return explicit.upper()
+    pickup = cart.get("is_consumer_pickup")
+    if isinstance(pickup, bool):
+        return "PICKUP" if pickup else "DELIVERY"
+    return ""
 
 
 def store_offers_pickup(preview: dict):
@@ -44,6 +63,27 @@ def store_offers_pickup(preview: dict):
         return preview["quote"]["store_order_cart"]["store"]["offers_pickup"]
     except (KeyError, TypeError):
         return None
+
+
+EARTH_RADIUS_MI = 3958.8
+
+
+def store_distance_miles(preview: dict):
+    """Straight-line miles from the delivery address to the store, or None if
+    either coordinate is missing. Every preview carries both, so this needs no
+    extra call. Straight-line understates walking distance, which is the safe
+    direction to err: it only ever keeps pickup, never forces delivery."""
+    try:
+        store = preview["quote"]["store_order_cart"]["store"]["address"]
+        here = preview["quote"]["delivery_address"]
+        lat1, lng1 = float(here["lat"]), float(here["lng"])
+        lat2, lng2 = float(store["lat"]), float(store["lng"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    h = (math.sin((p2 - p1) / 2) ** 2
+         + math.cos(p1) * math.cos(p2) * math.sin(math.radians(lng2 - lng1) / 2) ** 2)
+    return 2 * EARTH_RADIUS_MI * math.asin(math.sqrt(h))
 
 
 def extract_line_items(preview: dict) -> list[tuple[str, str]]:
@@ -180,6 +220,18 @@ def _try_mode(cfg: Config, fav: Favorite, mode: str) -> tuple[Candidate | None, 
         delete_cart(cart_uuid)
         return None, "too far for pickup"
 
+    # DoorDash marks pickup "offered" at stores miles away, so on "either" the
+    # cheaper pickup would always win and leave you walking across town. Past
+    # cfg.max_pickup_miles, fall through to the delivery attempt. Only "either"
+    # is arbitrated here — an explicit "pickup" is the user's call, not ours.
+    if mode == "pickup" and cfg.fulfillment == "either":
+        miles = store_distance_miles(preview)
+        if miles is not None and miles > cfg.max_pickup_miles:
+            logging.info("%s: %.1f mi away (over max_pickup_miles=%.1f) — preferring delivery",
+                         fav.store, miles, cfg.max_pickup_miles)
+            delete_cart(cart_uuid)
+            return None, f"{miles:.1f} mi away — too far for pickup"
+
     budget: dict | None = None
     team_id = ""
     if cfg.work_benefits:
@@ -189,8 +241,12 @@ def _try_mode(cfg: Config, fav: Favorite, mode: str) -> tuple[Candidate | None, 
             delete_cart(cart_uuid)
             return None, "no eligible work-benefit budget"
         budget, team_id = picked
+        # Re-price with the budget applied. Pass --fulfillment again: a preview
+        # without it only reports whatever mode the cart happens to be in, and
+        # dd-cli's quote is valid only for the mode it was computed for — which
+        # is the value submit_and_record then hands to `order submit`.
         preview = dd("order", "preview", "--cart-uuid", cart_uuid,
-                     "--selected-budget-id", budget["id"])
+                     "--fulfillment", mode, "--selected-budget-id", budget["id"])
 
     items = extract_preview_items(preview)
     line_items = extract_line_items(preview)

@@ -41,6 +41,11 @@ DEFAULT_LEAD_TIERS = {"fast": 15, "normal": 30, "slow": 60}
 @dataclass
 class Config:
     fulfillment: str = "pickup" # pickup | delivery | either
+    # "either" only: DoorDash reports pickup as offered at stores miles away, so
+    # without a limit the cheaper pickup always wins and you get a long trip.
+    # Past this many miles, skip pickup and let delivery take it. An explicit
+    # fulfillment of "pickup" or "delivery" is respected and never overridden.
+    max_pickup_miles: float = 1.0
     price_cap_cents: int = 2500
     dry_run: bool = False
     work_benefits: bool = False
@@ -87,6 +92,12 @@ def _build_and_validate(raw: dict, p) -> Config:
     if fulfillment not in FULFILLMENT_CHOICES:
         raise ConfigError(f"{p}: fulfillment must be one of {FULFILLMENT_CHOICES}, got {fulfillment!r}")
 
+    max_pickup_miles = raw.get("max_pickup_miles", 1.0)
+    if isinstance(max_pickup_miles, bool) or not isinstance(max_pickup_miles, (int, float)) \
+            or max_pickup_miles <= 0:
+        raise ConfigError(
+            f"{p}: 'max_pickup_miles' must be a positive number, got {max_pickup_miles!r}")
+
     lunch_time = req("lunch_time", str, "12:00")
     if not re.fullmatch(r"[0-2]?\d:[0-5]\d", lunch_time):
         raise ConfigError(f"{p}: lunch_time must be HH:MM, got {lunch_time!r}")
@@ -131,6 +142,7 @@ def _build_and_validate(raw: dict, p) -> Config:
 
     return Config(
         fulfillment=fulfillment,
+        max_pickup_miles=float(max_pickup_miles),
         price_cap_cents=int(raw.get("price_cap_cents", 2500)),
         dry_run=bool(raw.get("dry_run", False)),
         work_benefits=bool(raw.get("work_benefits", False)),
@@ -166,6 +178,8 @@ def dump_config(cfg: Config) -> str:
     lines.append("# Mutable data (skip_dates, rotation) lives in state.json, not here.")
     lines.append("")
     lines.append(f"fulfillment = {_toml_str(cfg.fulfillment)}  # pickup | delivery | either")
+    lines.append(f"max_pickup_miles = {cfg.max_pickup_miles}  # 'either' only: farther than "
+                 "this and lunchbot delivers instead of sending you across town")
     lines.append(f"price_cap_cents = {cfg.price_cap_cents}   # skip any order over this")
     lines.append(f"dry_run = {_toml_bool(cfg.dry_run)}       # true = preview only, never submit")
     lines.append(f"work_benefits = {_toml_bool(cfg.work_benefits)}  # require a company budget or fail")

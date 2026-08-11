@@ -154,6 +154,8 @@ def setup() -> int:
 
     cfg = Config(
         fulfillment=fulfillment,
+        # Config-file-only setting; preserve what's already in config.toml.
+        max_pickup_miles=(prev.max_pickup_miles if prev else 1.0),
         price_cap_cents=price_dollars * 100, dry_run=False,
         work_benefits=work_benefits, default_tip_cents=prev.default_tip_cents if prev else 0,
         lunch_time=lunch_time, default_expense_code="", default_expense_note="",
@@ -167,7 +169,8 @@ def setup() -> int:
     print(f"\nChecking each restaurant supports {fulfillment} right now…")
     kept: list[Favorite] = []
     for fav in favorites:
-        keep, note = setup_core.probe_favorite(fulfillment, lunch_time, fav)
+        keep, note = setup_core.probe_favorite(fulfillment, lunch_time, fav,
+                                               cfg.max_pickup_miles)
         if keep:
             print(f"  ✓ {fav.store}" + (f" — {note}" if note else ""))
             kept.append(fav)
