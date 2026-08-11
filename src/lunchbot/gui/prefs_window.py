@@ -812,6 +812,9 @@ class PrefsController(NSObject):
 
         return Config(
             fulfillment=fulfillment, price_cap_cents=price_cents,
+            # Config-file-only setting: carry it forward so saving prefs here
+            # can't silently reset a value the user tuned in config.toml.
+            max_pickup_miles=(self.prev.max_pickup_miles if self.prev else 1.0),
             dry_run=(self.prev.dry_run if self.prev else False),
             work_benefits=bool(self.work_cb.state()),
             default_tip_cents=(self.prev.default_tip_cents if self.prev else 0),
@@ -871,7 +874,8 @@ class PrefsController(NSObject):
             for fav in cfg.favorites:
                 q.put(("text", f"Checking {fav.store} for {verb}…"))
                 keep, _note = setup_core.probe_favorite(cfg.fulfillment,
-                                                        cfg.lunch_time, fav)
+                                                        cfg.lunch_time, fav,
+                                                        cfg.max_pickup_miles)
                 if keep:
                     kept.append(fav)
                 done += 1
