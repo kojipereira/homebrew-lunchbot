@@ -147,6 +147,28 @@ def ask_retry(title: str, body: str, timeout: int = 300) -> bool:
     return choice == "Try again"
 
 
+def ask_retry_or_skip(title: str, body: str, timeout: int = 300) -> str:
+    """Show an error with three choices when nothing was orderable this cycle.
+    Returns 'Try again' | 'Skip time slot' | 'Skip today'. A timeout behaves
+    like 'Skip time slot' (least destructive fallback — a later slot, if any,
+    still gets its own chance)."""
+    core = (
+        f'set r to display dialog "{_esc(body)}" '
+        f'buttons {{"Skip today", "Skip time slot", "Try again"}} default button "Try again" '
+        f'with title "{_esc(title)}" with icon caution giving up after {timeout}\n'
+        'if gave up of r then return "TIMEOUT"\n'
+        'return button returned of r'
+    )
+    r = _osascript('tell application "System Events" to activate\n' + core, timeout=timeout + 30)
+    if r.returncode != 0 and _is_tcc_denied(r.stderr):
+        r = _osascript(core, timeout=timeout + 30)
+    if r.returncode != 0:
+        return "Skip time slot"
+    choice = r.stdout.strip()
+    logging.info("ask_retry_or_skip: %s", choice)
+    return choice if choice in ("Try again", "Skip today", "Skip time slot") else "Skip time slot"
+
+
 def ask_sign_in(body: str) -> bool:
     """Offer to start the browser-based DoorDash sign-in flow."""
     core = (
