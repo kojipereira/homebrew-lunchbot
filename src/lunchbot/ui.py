@@ -127,12 +127,15 @@ def desktop_confirm(cfg: "Config", fav: "Favorite", items: list[dict],
     return "Skip"
 
 
-def ask_retry(title: str, body: str, timeout: int = 300) -> bool:
-    """Show an error with Cancel / Try again. Returns True if the user chose
-    Try again (default button). A timeout or Cancel returns False."""
+def ask_retry(title: str, body: str, timeout: int = 300, allow_skip: bool = False) -> str:
+    """Show an error. Returns 'retry' | 'skip' | 'cancel' (a timeout counts as
+    'cancel'). With allow_skip, a third 'Skip today' button is offered;
+    without it, only Cancel / Try again are shown and 'skip' is never returned."""
+    buttons = ('{"Skip today", "Cancel", "Try again"}' if allow_skip
+              else '{"Cancel", "Try again"}')
     core = (
         f'set r to display dialog "{_esc(body)}" '
-        f'buttons {{"Cancel", "Try again"}} default button "Try again" '
+        f'buttons {buttons} default button "Try again" '
         f'with title "{_esc(title)}" with icon caution giving up after {timeout}\n'
         'if gave up of r then return "TIMEOUT"\n'
         'return button returned of r'
@@ -141,10 +144,14 @@ def ask_retry(title: str, body: str, timeout: int = 300) -> bool:
     if r.returncode != 0 and _is_tcc_denied(r.stderr):
         r = _osascript(core, timeout=timeout + 30)
     if r.returncode != 0:
-        return False
+        return "cancel"
     choice = r.stdout.strip()
     logging.info("ask_retry: %s", choice)
-    return choice == "Try again"
+    if choice == "Try again":
+        return "retry"
+    if choice == "Skip today":
+        return "skip"
+    return "cancel"
 
 
 def ask_sign_in(body: str) -> bool:

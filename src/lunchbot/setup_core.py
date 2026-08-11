@@ -92,13 +92,13 @@ def probe_favorite(fulfillment: str, lunch_time: str, fav: Favorite) -> tuple[bo
                        price_cap_cents=10_000_000, work_benefits=False,
                        lunch_time=lunch_time, favorites=[])
     try:
-        cand = prepare_candidate(probe_cfg, fav)
+        cand, reason = prepare_candidate(probe_cfg, fav)
     except ddcli.DdError as e:
         return True, f"probe error ({e}) — keeping, will retry at runtime"
     if cand:
         delete_cart(cand[0])
         return True, ""
-    return False, f"{fulfillment} not available"
+    return False, reason
 
 
 def addresses() -> list[dict]:

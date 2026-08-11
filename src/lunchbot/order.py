@@ -118,23 +118,30 @@ def modes_for(cfg: Config) -> list[str]:
     return [cfg.fulfillment]
 
 
-def prepare_candidate(cfg: Config, fav: Favorite) -> Candidate | None:
+def prepare_candidate(cfg: Config, fav: Favorite) -> tuple[Candidate | None, str]:
     """Cleanup orphans → try each allowed fulfillment mode (reorder → preview →
     guards) and return the first candidate that passes. Always deletes its own
-    cart on failure so we never leak carts. None if nothing passes."""
+    cart on failure so we never leak carts. (None, reason) if nothing passes —
+    reason is the last attempted mode's failure, e.g. "closed", "sold out today",
+    "too far for pickup", surfaced to the user instead of a generic message."""
     cleanup_carts_at_store(fav.store_id)
+    reason = "not available"
     for mode in modes_for(cfg):
-        cand = _try_mode(cfg, fav, mode)
+        cand, reason = _try_mode(cfg, fav, mode)
         if cand:
-            return cand
-    return None
+            return cand, ""
+    return None, reason
 
 
-def _try_mode(cfg: Config, fav: Favorite, mode: str) -> Candidate | None:
+def _try_mode(cfg: Config, fav: Favorite, mode: str) -> tuple[Candidate | None, str]:
     reorder = dd("order", "reorder", "--order-uuid", fav.reorder_from)
     if not reorder.get("success", False):
-        logging.warning("reorder failed for %s: %s", fav.store, reorder.get("fail_reason"))
-        return None
+        # DoorDash's own fail_reason distinguishes "store closed" from "your
+        # usual items are sold out today" from other reorder failures — pass
+        # it straight through instead of collapsing everything to one message.
+        reason = reorder.get("fail_reason") or "couldn't reorder"
+        logging.warning("reorder failed for %s: %s", fav.store, reason)
+        return None, reason
     cart_uuid = reorder["cart_uuid"]
 
     preview_args = ["order", "preview", "--cart-uuid", cart_uuid, "--fulfillment", mode]
@@ -147,7 +154,7 @@ def _try_mode(cfg: Config, fav: Favorite, mode: str) -> Candidate | None:
     if fulfillment != expected:
         logging.info("%s: %s unavailable (got %s)", fav.store, mode, fulfillment or "none")
         delete_cart(cart_uuid)
-        return None
+        return None, f"{mode} isn't available right now"
 
     # Forcing --fulfillment pickup can echo PICKUP even for a store that's out of
     # pickup range; trust DoorDash's own flag. With "either" this falls through
@@ -155,7 +162,7 @@ def _try_mode(cfg: Config, fav: Favorite, mode: str) -> Candidate | None:
     if mode == "pickup" and store_offers_pickup(preview) is False:
         logging.info("%s: pickup not offered (too far) — skipping pickup", fav.store)
         delete_cart(cart_uuid)
-        return None
+        return None, "too far for pickup"
 
     budget: dict | None = None
     team_id = ""
@@ -164,7 +171,7 @@ def _try_mode(cfg: Config, fav: Favorite, mode: str) -> Candidate | None:
         if picked is None:
             logging.warning("%s: no eligible work-benefit budget — skipping", fav.store)
             delete_cart(cart_uuid)
-            return None
+            return None, "no eligible work-benefit budget"
         budget, team_id = picked
         preview = dd("order", "preview", "--cart-uuid", cart_uuid,
                      "--selected-budget-id", budget["id"])
@@ -182,12 +189,12 @@ def _try_mode(cfg: Config, fav: Favorite, mode: str) -> Candidate | None:
     if total_cents < 0:
         logging.warning("could not read total for %s", fav.store)
         delete_cart(cart_uuid)
-        return None
+        return None, "couldn't read the order total"
     if total_cents > cfg.price_cap_cents:
         logging.warning("%s over cap: %d > %d", fav.store, total_cents, cfg.price_cap_cents)
         delete_cart(cart_uuid)
-        return None
-    return cart_uuid, items, line_items, total_cents, fulfillment, budget, team_id
+        return None, f"over your ${cfg.price_cap_cents / 100:.2f} cap"
+    return (cart_uuid, items, line_items, total_cents, fulfillment, budget, team_id), ""
 
 
 def submit_and_record(cfg: Config, state: dict, fav: Favorite, cart_uuid: str,
@@ -245,7 +252,7 @@ def submit_and_record(cfg: Config, state: dict, fav: Favorite, cart_uuid: str,
             logging.warning("could not get checkout URL: %s", e)
         if ask_retry("Lunchbot: order failed",
                      f"{fav.store} — ${total_cents/100:.2f}\n\nDoorDash rejected the order:\n"
-                     f"{err}\n\nTry again?"):
+                     f"{err}\n\nTry again?") == "retry":
             continue
         show_alert("Lunchbot: order failed",
                    f"{fav.store} — ${total_cents/100:.2f}\n\n{err}\n\n"

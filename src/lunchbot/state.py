@@ -24,6 +24,10 @@ def load_state() -> dict:
     data.setdefault("cursor", 0)
     data.setdefault("orders", {})
     data.setdefault("skip_dates", [])
+    # {iso_date: store} — forces a specific favorite on a future scheduled run
+    # instead of the pool-rotation pick. Left in place once the date passes;
+    # nothing ever checks a stale date again, so there's nothing to clean up.
+    data.setdefault("overrides", {})
     # Whether the user has paused the ordering schedule. The menu-bar app stops
     # the schedule when it closes and restores it on launch — but only back to
     # this last-known intent, so a deliberate pause survives a quit/reopen.
@@ -55,3 +59,25 @@ def add_skip_date(iso_date: str) -> bool:
     state["skip_dates"].append(iso_date)
     save_state(state)
     return True
+
+
+def set_override(iso_date: str, store: str) -> None:
+    """Force `store` on iso_date's scheduled run instead of the pool-rotation
+    pick. Still subject to the normal weekday/skip/already-ordered gates —
+    this only changes *which* favorite gets tried, not whether the day fires."""
+    state = load_state()
+    state["overrides"][iso_date] = store
+    save_state(state)
+
+
+def clear_override(iso_date: str) -> bool:
+    """Undo a set_override for iso_date. Returns True if one was removed."""
+    state = load_state()
+    if state["overrides"].pop(iso_date, None) is None:
+        return False
+    save_state(state)
+    return True
+
+
+def get_override(iso_date: str) -> str | None:
+    return load_state()["overrides"].get(iso_date)
