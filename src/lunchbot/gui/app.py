@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import atexit
 import logging
+import os
 import subprocess
 import sys
 import threading
@@ -31,7 +32,8 @@ try:
 except ImportError:  # allows `import lunchbot.gui.app` without the dep
     rumps = None
 
-APP_TITLE = "🥪"  # the menu-bar item is just this emoji — see LunchbotApp.__init__
+APP_TITLE = "🥪"  # emoji fallback if the icon can't be loaded — see LunchbotApp.__init__
+ICON_PATH = os.path.join(os.path.dirname(__file__), "icons", "lunchbot.pdf")
 DAY_NAMES = {1: "Mon", 2: "Tue", 3: "Wed", 4: "Thu", 5: "Fri", 6: "Sat", 7: "Sun"}
 
 
@@ -108,6 +110,19 @@ def _open_logs() -> None:
     subprocess.Popen(["open", str(paths.LOG_PATH)])
 
 
+def _icon_loads(path: str) -> bool:
+    """True only if the file exists AND NSImage can render it to a real image —
+    guards against an invisible menu-bar item if the icon can't be decoded."""
+    if not os.path.exists(path):
+        return False
+    try:
+        from AppKit import NSImage
+        img = NSImage.alloc().initWithContentsOfFile_(path)
+        return bool(img and img.isValid() and img.size().width > 0)
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def _parse_args(argv=None) -> argparse.Namespace:
     p = argparse.ArgumentParser(
         prog="lunchbot-gui", description="Lunchbot's menu-bar app.")
@@ -153,12 +168,19 @@ def main(argv=None) -> int:
 
     class LunchbotApp(rumps.App):
         def __init__(self, open_prefs=False):
-            # Just the emoji — no icon file. An SVG-as-template render was tried
-            # and dropped: NSImage reports a valid, non-zero-size image for it,
-            # but the actual status-bar paint came out blank on some macOS/pyobjc
-            # combinations despite that, with no cheap way to detect it up front.
-            # A plain title has no such failure mode.
-            super().__init__("Lunchbot", title=APP_TITLE, quit_button=None)
+            # A prior SVG-as-template attempt came out blank in the menu bar
+            # despite NSImage reporting a valid, non-zero-size image, on the
+            # exact launch path the app took at the time: LaunchServices
+            # (Finder double-click / `open`) exec'ing straight into the
+            # unsigned bundle's binary. That path no longer exists — see
+            # appbundle.py's launcher, which now kickstarts the registered
+            # login agent instead — so a real logo (PDF, not SVG) is worth
+            # trying again. _icon_loads() still guards against a genuinely
+            # undecodable file; the emoji title stays as a fallback either way.
+            if _icon_loads(ICON_PATH):
+                super().__init__("Lunchbot", icon=ICON_PATH, template=True, quit_button=None)
+            else:
+                super().__init__("Lunchbot", title=APP_TITLE, quit_button=None)
             self.status_item = rumps.MenuItem("…")
             self.status_item.set_callback(None)  # non-clickable status line
             self.order_menu = rumps.MenuItem("Order now")

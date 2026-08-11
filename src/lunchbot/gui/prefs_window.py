@@ -689,11 +689,11 @@ class PrefsController(NSObject):
         page.addSubview_(card4_box)
         _section_header(card4, "bell", "Order confirmation", card4_h)
 
-        self.confirm_cb = _checkbox("Confirm each order before it's placed",
-                                    prev.desktop_confirm.enabled if prev else True)
-        self.confirm_cb.setFrame_(_rect(indent, 54, iw, 18, card4_h))
-        card4.addSubview_(self.confirm_cb)
-        card4.addSubview_(_pos(_small("Off = Yolo mode — orders are placed automatically, "
+        self.yolo_cb = _checkbox("Yolo mode",
+                                 (not prev.desktop_confirm.enabled) if prev else False)
+        self.yolo_cb.setFrame_(_rect(indent, 54, iw, 18, card4_h))
+        card4.addSubview_(self.yolo_cb)
+        card4.addSubview_(_pos(_small("On = orders are placed automatically, "
                                       "no confirmation dialog.", secondary=True),
                                indent, 76, iw, 16, card4_h))
 
@@ -823,7 +823,7 @@ class PrefsController(NSObject):
             weekdays=weekdays,
             lead_tiers=(dict(self.prev.lead_tiers) if self.prev else dict(DEFAULT_LEAD_TIERS)),
             favorites=favorites,
-            desktop_confirm=DesktopConfirmCfg(enabled=bool(self.confirm_cb.state()),
+            desktop_confirm=DesktopConfirmCfg(enabled=not bool(self.yolo_cb.state()),
                                               timeout_seconds=300, on_timeout="abort"),
         )
 
