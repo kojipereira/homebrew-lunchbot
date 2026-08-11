@@ -84,6 +84,12 @@ class V:
     def contentView(self):
         return self
 
+    def cell(self):
+        # Real AppKit: NSTextField/NSButton always have a backing cell. Return
+        # self so a chained setter (e.g. setLineBreakMode_) is still a no-op
+        # rather than an AttributeError on None.
+        return self
+
     # -- text
     def stringValue(self):
         return self._string
@@ -142,6 +148,36 @@ class V:
 
     def maxValue(self):
         return 1.0
+
+    # -- attributed-string chain (link buttons): attributedTitle().mutableCopy()
+    # .addAttribute_value_range_(...) then setAttributedTitle_(...) — self stands
+    # in for the attributed string too, since all that's exercised is the chain.
+    def attributedTitle(self):
+        return self
+
+    def mutableCopy(self):
+        return self
+
+    def length(self):
+        return len(self._title or self._string or "")
+
+    def addAttribute_value_range_(self, *_a):
+        pass
+
+    def string(self):
+        return self._title or self._string or ""
+
+    def setWantsLayer_(self, _on):
+        pass
+
+    def layer(self):
+        return self
+
+    def CGColor(self):
+        return self
+
+    def frame(self):
+        return types.SimpleNamespace(size=types.SimpleNamespace(width=0, height=0))
 
 
 class Cls:
@@ -229,6 +265,18 @@ class _Color:
     def systemRedColor():
         return V()
 
+    @staticmethod
+    def separatorColor():
+        return V()
+
+    @staticmethod
+    def controlBackgroundColor():
+        return V()
+
+    @staticmethod
+    def linkColor():
+        return V()
+
 
 class _Cal:
     @staticmethod
@@ -269,9 +317,10 @@ class _Comps:
 
 
 _module("AppKit", [
-    "NSAlert", "NSApplication", "NSBox", "NSButton", "NSDatePicker", "NSMenu",
-    "NSMenuItem", "NSPopUpButton", "NSProgressIndicator", "NSScrollView",
-    "NSSegmentedControl", "NSTextField", "NSView", "NSWindow",
+    "NSAlert", "NSApplication", "NSBox", "NSButton", "NSDatePicker", "NSImage",
+    "NSImageView", "NSMenu", "NSMenuItem", "NSPopUpButton", "NSProgressIndicator",
+    "NSScrollView", "NSSegmentedControl", "NSTextField", "NSView", "NSWindow",
+    "NSWorkspace",
 ], extra={
     "NSApp": lambda: V(),
     "NSFont": _Font, "NSColor": _Color,
@@ -281,11 +330,14 @@ _module("AppKit", [
     "NSTextAlignmentCenter": 2, "NSTextAlignmentRight": 1,
     "NSWindowStyleMaskClosable": 2, "NSWindowStyleMaskMiniaturizable": 4,
     "NSWindowStyleMaskTitled": 1,
+    "NSForegroundColorAttributeName": "NSForegroundColorAttributeName",
+    "NSUnderlineStyleAttributeName": "NSUnderlineStyleAttributeName",
 })
 _module("Foundation", [], extra={
     "NSCalendar": _Cal, "NSCalendarUnitHour": 32, "NSCalendarUnitMinute": 64,
     "NSDateComponents": _Comps, "NSObject": NSObject, "NSTimer": _Timer,
     "NSMakeRect": lambda x, y, w, h: (x, y, w, h),
+    "NSURL": Cls("NSURL"),
 })
 
 
@@ -304,6 +356,17 @@ sys.modules["AppKit"].NSView = NSViewBase
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 from lunchbot.gui import prefs_window as P  # noqa: E402
+
+# ------------------------------------------------- 0. pure helper functions
+print("\n--- order-time helpers ---")
+check(P._order_time_text("12:00", 60) == "Orders at 11:00 AM",
+      "60 min before a 12:00 PM lunch orders at 11:00 AM")
+check(P._order_time_text("12:00", 15) == "Orders at 11:45 AM",
+      "15 min before a 12:00 PM lunch orders at 11:45 AM")
+check(P._order_time_text("00:10", 30) == "Orders at 11:40 PM",
+      "lead time wraps past midnight")
+check(P._closest_lead_option(20) == 15, "20 min rounds down to the 15 min option")
+check(P._closest_lead_option(38) == 45, "38 min rounds up to the 45 min option")
 
 # ------------------------------------------------- 1. selector arity
 print("\n--- selector arity ---")
@@ -341,13 +404,24 @@ c._build_form()
 check(len(c.store_rows) == 2, "one row per store")
 check(len(set(c.addr_titles)) == len(c.addr_titles),
       f"duplicate addresses disambiguated: {c.addr_titles}")
+# The FAQ link button can't carry its URL as a bolted-on attribute on a real
+# NSButton (only the fake stub here allows that) — it must go through
+# _LinkOpener's dict instead. Assert the dict, not the button attribute, so
+# this actually catches a regression back to the broken approach.
+check(P.FAQ_URL in P._LinkOpener.shared()._urls.values(),
+      "the FAQ link button is wired to FAQ_URL via _LinkOpener, not a bolted-on attribute")
 
 # Nothing ticked yet -> refuses to save.
 check(c._collect() is None, "no restaurants selected -> _collect() refuses")
+check(c.selected_count_label.stringValue() == "0 selected",
+      "selected count starts at 0")
 
 # Tick both restaurants, pick delivery too, choose the second address.
-for _s, cb, _pop, _old in c.store_rows:
+for _s, cb, _pop in c.store_rows:
     cb.setState_(1)
+    c.restaurantToggled_(cb)
+check(c.selected_count_label.stringValue() == "2 selected",
+      "selected count live-updates as restaurants are ticked")
 c.delivery_cb.setState_(1)
 c.addr_pop.selectItemAtIndex_(2)
 c.time_picker.setDateValue_("11:30")
@@ -362,16 +436,13 @@ check(cfg.delivery_address_id == "a2", f"second address chosen (got {cfg.deliver
 check(c.addr_changed is True, "address change flagged for the save worker")
 check([f.store for f in cfg.favorites] == ["Joe's Diner", "Taco Place"],
       "favorites carry the store names")
-check(all(f.lead_minutes == cfg.lead_tiers["normal"] for f in cfg.favorites),
-      "default tier resolves to the 'normal' preset")
+check(all(f.lead_minutes == 30 for f in cfg.favorites),
+      "a new restaurant defaults to 30 min before")
 
 # Bad numbers are rejected rather than written.
 c.price_field.setStringValue_("abc")
 check(c._collect() is None, "non-numeric price -> _collect() refuses")
 c.price_field.setStringValue_("30")
-c.tier_fields["fast"].setStringValue_("0")
-check(c._collect() is None, "zero lead time -> _collect() refuses")
-c.tier_fields["fast"].setStringValue_("15")
 
 # Deselect every restaurant AND every fulfillment mode.
 c.pickup_cb.setState_(0)

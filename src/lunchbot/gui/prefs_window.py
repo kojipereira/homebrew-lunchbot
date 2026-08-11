@@ -30,16 +30,18 @@ import objc
 from AppKit import (NSAlert, NSApp, NSApplication,
                     NSApplicationActivationPolicyRegular, NSBackingStoreBuffered,
                     NSBezelBorder, NSBox, NSBoxSeparator, NSButton,
-                    NSButtonTypeSwitch, NSColor, NSDatePicker, NSFont, NSMenu,
-                    NSMenuItem, NSPopUpButton, NSProgressIndicator,
+                    NSButtonTypeSwitch, NSColor, NSDatePicker,
+                    NSForegroundColorAttributeName, NSFont, NSImage, NSImageView,
+                    NSMenu, NSMenuItem, NSPopUpButton, NSProgressIndicator,
                     NSScrollView, NSSegmentedControl,
                     NSSegmentSwitchTrackingSelectAny,
                     NSSegmentSwitchTrackingSelectOne, NSTextAlignmentCenter,
-                    NSTextAlignmentRight, NSTextField, NSView, NSWindow,
-                    NSWindowStyleMaskClosable, NSWindowStyleMaskMiniaturizable,
-                    NSWindowStyleMaskTitled)
+                    NSTextAlignmentRight, NSTextField, NSUnderlineStyleAttributeName,
+                    NSView, NSWindow, NSWindowStyleMaskClosable,
+                    NSWindowStyleMaskMiniaturizable, NSWindowStyleMaskTitled,
+                    NSWorkspace)
 from Foundation import (NSCalendar, NSCalendarUnitHour, NSCalendarUnitMinute,
-                        NSDateComponents, NSMakeRect, NSObject, NSTimer)
+                        NSDateComponents, NSMakeRect, NSObject, NSTimer, NSURL)
 
 from .. import agent, ddcli, paths, setup_core
 from ..config import (DEFAULT_LEAD_TIERS, Config, DesktopConfirmCfg, Favorite,
@@ -51,26 +53,36 @@ from ..state import set_schedule_paused
 DATE_PICKER_TEXTFIELD_AND_STEPPER = 0      # NSDatePickerStyleTextFieldAndStepper
 DATE_PICKER_HOUR_MINUTE = 0x000C           # NSDatePickerElementFlagHourMinute
 PROGRESS_STYLE_SPINNING = 1                # NSProgressIndicatorStyleSpinning
+LINE_BREAK_TRUNCATING_TAIL = 4              # NSLineBreakByTruncatingTail
+BOX_TYPE_CUSTOM = 4                         # NSBoxCustom
+BOX_NO_TITLE = 0                            # NSNoTitle
 
-TIER_NAMES = ["Fast", "Normal", "Slow"]     # maps to cfg.lead_tiers[fast|normal|slow]
-CUSTOM = "Custom"
+# The only order-time choices offered — each favorite sets its own directly,
+# no more separate customizable Fast/Normal/Slow presets. cfg.lead_tiers is
+# left alone at the config layer (the terminal wizard still uses it); this
+# window just stopped reading/writing it.
+LEAD_OPTIONS = [15, 30, 45, 60]
+ORDER_TIME_TOOLTIP = "Choose how early Lunchbot should place the order before your scheduled lunch."
 DAY_NAMES = [("Mon", 1), ("Tue", 2), ("Wed", 3), ("Thu", 4), ("Fri", 5),
              ("Sat", 6), ("Sun", 7)]
 KEEP_CURRENT = "(keep current)"
+FAQ_URL = "https://github.com/kojipereira/homebrew-lunchbot#troubleshooting"
+
+# Settings page: grouped card sections, each with an icon + title.
+SECTION_PAD = 18       # inside a card, edge to first control
+SECTION_GAP = 16       # between cards
 
 # ---- geometry ---------------------------------------------------------------
 # The window is a fixed size, like most Mac preference windows, so every frame
 # below is absolute — no autoresizing masks to reason about. Long lists scroll.
-W, H = 720, 660
+W, H = 820, 800
 PAD = 20
 SWITCHER_TOP, SWITCHER_H = 14, 24
 CONTENT_TOP = 54
 FOOTER_H = 58
 CONTENT_W = W - 2 * PAD
 CONTENT_H = H - CONTENT_TOP - FOOTER_H
-ROW_H = 30                       # one restaurant row
-LABEL_COL_W = 150                # right-aligned label column on the Settings page
-FIELD_X = LABEL_COL_W + 14
+ROW_H = 36                       # one restaurant row — dropdown + "Orders at..." side by side
 
 
 def _rect(x, top, w, h, container_h):
@@ -84,7 +96,7 @@ def _pos(view, x, top, w, h, container_h):
     return view
 
 
-def _label(text, size=None, bold=False, secondary=False, align_right=False):
+def _label(text, size=None, bold=False, secondary=False, align_right=False, truncate=False):
     f = NSTextField.labelWithString_(text)
     size = size or NSFont.systemFontSize()
     f.setFont_(NSFont.boldSystemFontOfSize_(size) if bold
@@ -93,6 +105,10 @@ def _label(text, size=None, bold=False, secondary=False, align_right=False):
         f.setTextColor_(NSColor.secondaryLabelColor())
     if align_right:
         f.setAlignment_(NSTextAlignmentRight)
+    if truncate:
+        # An ellipsis when the frame is narrower than the text, instead of a
+        # hard cutoff mid-word at the frame's edge.
+        f.cell().setLineBreakMode_(LINE_BREAK_TRUNCATING_TAIL)
     return f
 
 
@@ -106,12 +122,29 @@ def _field(value=""):
     return f
 
 
-def _checkbox(title, on):
+def _checkbox(title, on, target=None, action=None):
     b = NSButton.alloc().initWithFrame_(NSMakeRect(0, 0, 100, 18))
     b.setButtonType_(NSButtonTypeSwitch)
     b.setTitle_(title)
     b.setState_(1 if on else 0)
+    if target is not None:
+        b.setTarget_(target)
+        b.setAction_(action)
     return b
+
+
+def _order_time_text(lunch_time_hhmm, lead_minutes):
+    """"Orders at HH:MM AM/PM" for a lunch time minus a lead time, wrapping
+    past midnight the same way the runtime's own lead-time math does."""
+    h, m = (int(x) for x in lunch_time_hhmm.split(":"))
+    total = (h * 60 + m - lead_minutes) % (24 * 60)
+    oh, om = divmod(total, 60)
+    suffix = "AM" if oh < 12 else "PM"
+    return f"Orders at {oh % 12 or 12}:{om:02d} {suffix}"
+
+
+def _closest_lead_option(minutes):
+    return min(LEAD_OPTIONS, key=lambda m: abs(m - minutes))
 
 
 def _popup(titles, selected_index=0, width=160):
@@ -132,6 +165,86 @@ def _separator(x, top, w, container_h):
     b = NSBox.alloc().initWithFrame_(_rect(x, top, w, 1, container_h))
     b.setBoxType_(NSBoxSeparator)
     return b
+
+
+def _card(top, h, container_h, w=None):
+    """A rounded, bordered group box. NSBox's own fill/border colors take
+    plain NSColor (no CGColorRef, so no dependency on the Quartz framework
+    binding) — colors are semantic (separatorColor / controlBackgroundColor),
+    so it still adapts to Dark Mode automatically, not a hand-picked color.
+    Returns (box_to_add_to_the_page, content_view_to_add_children_to) — margins
+    are zeroed so children can use the same absolute coordinates as everywhere
+    else in this file, with no box-imposed inset to account for."""
+    box = NSBox.alloc().initWithFrame_(_rect(0, top, w or CONTENT_W, h, container_h))
+    box.setBoxType_(BOX_TYPE_CUSTOM)
+    box.setTitlePosition_(BOX_NO_TITLE)
+    box.setFillColor_(NSColor.controlBackgroundColor())
+    box.setBorderColor_(NSColor.separatorColor())
+    box.setBorderWidth_(1.0)
+    box.setCornerRadius_(10.0)
+    box.setContentViewMargins_((0.0, 0.0))
+    return box, box.contentView()
+
+
+def _icon(symbol_name, size=15):
+    """An SF Symbol (built into macOS 11+, which Lunchbot already requires) —
+    native, Dark-Mode-adaptive, no bundled asset to keep in sync."""
+    iv = NSImageView.alloc().init()
+    img = NSImage.imageWithSystemSymbolName_accessibilityDescription_(symbol_name, None)
+    if img is not None:
+        img.setSize_((size, size))
+        iv.setImage_(img)
+    iv.setFrame_(NSMakeRect(0, 0, size, size))
+    return iv
+
+
+def _section_header(card, symbol_name, title, card_h):
+    """Icon + bold title at the top of a card. Returns the title label so a
+    caller that needs an inline note (e.g. "(optional)") can measure it and
+    place the note relative to its actual rendered width."""
+    icon = _icon(symbol_name)
+    icon.setFrame_(_rect(SECTION_PAD, SECTION_PAD + 2, 16, 16, card_h))
+    card.addSubview_(icon)
+    label = _label(title, bold=True)
+    card.addSubview_(_pos(label, SECTION_PAD + 22, SECTION_PAD, 220, 18, card_h))
+    return label
+
+
+def _link_button(title, url):
+    b = NSButton.buttonWithTitle_target_action_(title, _LinkOpener.shared(), "open:")
+    b.setBezelStyle_(0)
+    b.setBordered_(False)
+    attributed = b.attributedTitle().mutableCopy()
+    full_range = (0, attributed.length())
+    attributed.addAttribute_value_range_(NSForegroundColorAttributeName,
+                                         NSColor.linkColor(), full_range)
+    attributed.addAttribute_value_range_(NSUnderlineStyleAttributeName, 1, full_range)
+    b.setAttributedTitle_(attributed)
+    # A genuine PyObjC-bridged NSButton (unlike a pure-Python NSObject
+    # subclass) can't carry a new attribute — b._link_url = url raises
+    # AttributeError. Keyed dict on the shared target instead, same pattern
+    # as _order_time_labels above.
+    _LinkOpener.shared()._urls[b] = url
+    return b
+
+
+class _LinkOpener(NSObject):
+    """A single target for every link button — PyObjC targets are held
+    weakly, so each button needs a target that outlives it; one shared
+    instance avoids allocating (and leaking track of) one per link."""
+    _instance = None
+
+    @classmethod
+    def shared(cls):
+        if cls._instance is None:
+            cls._instance = cls.alloc().init()
+            cls._instance._urls = {}
+        return cls._instance
+
+    def open_(self, sender):
+        url = self._urls.get(sender)
+        if url:
+            NSWorkspace.sharedWorkspace().openURL_(NSURL.URLWithString_(url))
 
 
 def _push(title, target, action, default=False):
@@ -363,8 +476,9 @@ class PrefsController(NSObject):
     def _build_form(self):
         prev = self.prev
         self.prev_by_id = {f.store_id: f for f in prev.favorites} if prev else {}
-        self.tiers = dict(prev.lead_tiers) if prev else dict(DEFAULT_LEAD_TIERS)
+        self.lunch_time = prev.lunch_time if prev else "12:00"
         self.store_rows = []
+        self._order_time_labels = {}   # popup -> its "Orders at ..." label
 
         if self.switcher is None:
             self.switcher = NSSegmentedControl.segmentedControlWithLabels_trackingMode_target_action_(
@@ -388,18 +502,26 @@ class PrefsController(NSObject):
     def _build_restaurants_page(self):
         page = self._new_page()
         page.addSubview_(_pos(_label("Rotate through these spots", bold=True, size=14),
-                              0, 0, CONTENT_W, 20, CONTENT_H))
+                              0, 0, CONTENT_W - 100, 20, CONTENT_H))
+        self.selected_count_label = _small("", secondary=True)
+        self.selected_count_label.setAlignment_(NSTextAlignmentRight)
+        self.selected_count_label.setFrame_(_rect(CONTENT_W - 100, 2, 100, 16, CONTENT_H))
+        page.addSubview_(self.selected_count_label)
         page.addSubview_(_pos(_small("Pick the restaurants to include, and how early "
                                      "to order from each.", secondary=True),
                               0, 24, CONTENT_W, 16, CONTENT_H))
 
         # Column headers, aligned with the row geometry below.
-        for x, title in ((28, "Restaurant"), (268, "Speed"), (388, "Usual order")):
+        for x, title in ((28, "Restaurant"), (268, "Order time"), (576, "Usual order")):
             page.addSubview_(_pos(_small(title, secondary=True),
-                                  x, 52, 220, 14, CONTENT_H))
+                                  x, 52, 180, 14, CONTENT_H))
+        info = _small("ⓘ", secondary=True)
+        info.setFrame_(_rect(268 + 78, 52, 14, 14, CONTENT_H))
+        info.setToolTip_(ORDER_TIME_TOOLTIP)
+        page.addSubview_(info)
 
-        list_top, presets_top = 70, CONTENT_H - 74
-        scroll_h = presets_top - 14 - list_top
+        list_top = 70
+        scroll_h = CONTENT_H - list_top - 8
         scroll = NSScrollView.alloc().initWithFrame_(
             _rect(0, list_top, CONTENT_W, scroll_h, CONTENT_H))
         scroll.setHasVerticalScroller_(True)
@@ -417,118 +539,181 @@ class PrefsController(NSObject):
         for i, s in enumerate(self.stores):
             old = self.prev_by_id.get(s["store_id"])
             y = i * ROW_H + 4
-            cb = _checkbox(_trunc(s["store"], 30), old is not None)
-            cb.setFrame_(NSMakeRect(8, y + 4, 250, 18))
+            cb = _checkbox(_trunc(s["store"], 30), old is not None,
+                           target=self, action="restaurantToggled:")
+            cb.setFrame_(NSMakeRect(8, y + 4, 220, 18))
             doc.addSubview_(cb)
 
-            titles = TIER_NAMES + [CUSTOM]
-            current = self._tier_for(old.lead_minutes if old else self.tiers["normal"])
-            pop = _popup(titles, titles.index(current), width=110)
-            pop.setFrame_(NSMakeRect(266, y, 110, 25))
+            titles = [f"{m} min before" for m in LEAD_OPTIONS]
+            current_minutes = _closest_lead_option(old.lead_minutes if old else 30)
+            pop = _popup(titles, LEAD_OPTIONS.index(current_minutes), width=140)
+            pop.setFrame_(NSMakeRect(266, y, 140, 25))
+            pop.setTarget_(self)
+            pop.setAction_("orderTimeChanged:")
             doc.addSubview_(pop)
 
-            usual = _small(_trunc(", ".join(s["items"][:2]), 36), secondary=True)
-            usual.setFrame_(NSMakeRect(386, y + 5, doc_w - 396, 16))
+            # "Orders at HH:MM" sits beside the dropdown, not beneath it, so
+            # rows stay a single line — the relationship reads left-to-right.
+            order_time = _small(_order_time_text(self.lunch_time, current_minutes),
+                                secondary=True)
+            order_time.setFrame_(NSMakeRect(416, y + 6, 150, 14))
+            doc.addSubview_(order_time)
+            self._order_time_labels[pop] = order_time
+
+            usual = _small(", ".join(s["items"][:2]), secondary=True, truncate=True)
+            usual.setFrame_(NSMakeRect(576, y + 5, doc_w - 586, 16))
             doc.addSubview_(usual)
 
-            self.store_rows.append((s, cb, pop, old.lead_minutes if old else None))
+            self.store_rows.append((s, cb, pop))
         scroll.setDocumentView_(doc)
         page.addSubview_(scroll)
-
-        page.addSubview_(_separator(0, presets_top - 14, CONTENT_W, CONTENT_H))
-        page.addSubview_(_pos(_label("Lead-time presets", bold=True),
-                              0, presets_top, 200, 18, CONTENT_H))
-        page.addSubview_(_pos(_small("Minutes before lunch each speed fires.",
-                                     secondary=True),
-                              200, presets_top + 2, 320, 16, CONTENT_H))
-        self.tier_fields = {}
-        x = 0
-        for name in ("fast", "normal", "slow"):
-            page.addSubview_(_pos(_small(name.capitalize(), secondary=True),
-                                  x, presets_top + 32, 52, 16, CONTENT_H))
-            f = _field(self.tiers.get(name, DEFAULT_LEAD_TIERS[name]))
-            f.setFrame_(_rect(x + 52, presets_top + 28, 56, 22, CONTENT_H))
-            page.addSubview_(f)
-            self.tier_fields[name] = f
-            x += 130
+        self._update_selected_count()
         return page
 
     @objc.python_method
     def _build_settings_page(self):
         page = self._new_page()
         prev = self.prev
+        iw = CONTENT_W - 2 * SECTION_PAD    # usable width inside a card
 
-        def row_label(text, top):
-            page.addSubview_(_pos(_label(text, align_right=True),
-                                  0, top + 3, LABEL_COL_W, 18, CONTENT_H))
+        # ---- Card 1: Order preferences --------------------------------------
+        card1_h = 250
+        card1_box, card1 = _card(0, card1_h, CONTENT_H)
+        page.addSubview_(card1_box)
+        _section_header(card1, "fork.knife", "Order preferences", card1_h)
 
-        # Fulfillment
         ful = prev.fulfillment if prev else "pickup"
-        row_label("Fulfillment", 6)
+        card1.addSubview_(_pos(_label("Fulfillment"), SECTION_PAD, 54, 90, 18, card1_h))
         self.pickup_cb = _checkbox("Pickup", ful in ("pickup", "either"))
-        self.pickup_cb.setFrame_(_rect(FIELD_X, 6, 90, 18, CONTENT_H))
+        self.pickup_cb.setFrame_(_rect(SECTION_PAD + 100, 54, 90, 18, card1_h))
         self.delivery_cb = _checkbox("Delivery", ful in ("delivery", "either"))
-        self.delivery_cb.setFrame_(_rect(FIELD_X + 96, 6, 90, 18, CONTENT_H))
-        page.addSubview_(self.pickup_cb)
-        page.addSubview_(self.delivery_cb)
-        page.addSubview_(_pos(_small("Both → whichever each restaurant supports.",
-                                     secondary=True),
-                              FIELD_X + 200, 7, 300, 16, CONTENT_H))
+        self.delivery_cb.setFrame_(_rect(SECTION_PAD + 200, 54, 90, 18, card1_h))
+        card1.addSubview_(self.pickup_cb)
+        card1.addSubview_(self.delivery_cb)
+        card1.addSubview_(_pos(_small("Both → whichever each restaurant supports.",
+                                      secondary=True, truncate=True),
+                               SECTION_PAD + 310, 55, iw - 310, 16, card1_h))
 
-        # Address
         self.addr_titles = _unique([KEEP_CURRENT]
                                    + [_addr_label(a) for a in self.addresses])
-        row_label("Order to", 42)
-        self.addr_pop = _popup(self.addr_titles, self._preselect_addr(),
-                               width=CONTENT_W - FIELD_X)
-        self.addr_pop.setFrame_(_rect(FIELD_X, 40, CONTENT_W - FIELD_X, 25, CONTENT_H))
-        page.addSubview_(self.addr_pop)
+        card1.addSubview_(_pos(_label("Order to"), SECTION_PAD, 90, 150, 18, card1_h))
+        self.addr_pop = _popup(self.addr_titles, self._preselect_addr(), width=iw)
+        self.addr_pop.setFrame_(_rect(SECTION_PAD, 112, iw, 25, card1_h))
+        card1.addSubview_(self.addr_pop)
+        card1.addSubview_(_pos(_small("Where orders will be sent.", secondary=True),
+                               SECTION_PAD, 140, iw, 16, card1_h))
 
-        # Lunch time — a real time picker, not a string field.
-        row_label("Lunch time", 80)
+        # Lunch time and Max price side by side.
+        card1.addSubview_(_pos(_label("Lunch time"), SECTION_PAD, 168, 150, 18, card1_h))
         self.time_picker = NSDatePicker.alloc().initWithFrame_(
-            _rect(FIELD_X, 78, 110, 24, CONTENT_H))
+            _rect(SECTION_PAD, 190, 130, 24, card1_h))
         self.time_picker.setDatePickerStyle_(DATE_PICKER_TEXTFIELD_AND_STEPPER)
         self.time_picker.setDatePickerElements_(DATE_PICKER_HOUR_MINUTE)
         self.time_picker.setDateValue_(_time_to_date(prev.lunch_time if prev else "12:00"))
-        page.addSubview_(self.time_picker)
+        card1.addSubview_(self.time_picker)
+        card1.addSubview_(_pos(_small("Default time for daily orders.", secondary=True),
+                               SECTION_PAD, 216, 300, 16, card1_h))
 
-        # Price cap
-        row_label("Max price", 116)
-        page.addSubview_(_pos(_label("$"), FIELD_X, 119, 12, 18, CONTENT_H))
+        price_x = SECTION_PAD + 380
+        card1.addSubview_(_pos(_label("Max price"), price_x, 168, 150, 18, card1_h))
+        card1.addSubview_(_pos(_label("$"), price_x, 193, 12, 18, card1_h))
         self.price_field = _field((prev.price_cap_cents // 100) if prev else 25)
-        self.price_field.setFrame_(_rect(FIELD_X + 14, 116, 80, 22, CONTENT_H))
-        page.addSubview_(self.price_field)
+        self.price_field.setFrame_(_rect(price_x + 14, 190, 80, 22, card1_h))
+        card1.addSubview_(self.price_field)
+        card1.addSubview_(_pos(_small("Only show restaurants at or below this price.",
+                                      secondary=True, truncate=True),
+                               price_x, 216, iw - 380, 16, card1_h))
 
-        page.addSubview_(_separator(0, 158, CONTENT_W, CONTENT_H))
+        # ---- Card 2: Company budget (optional) ------------------------------
+        card2_top = card1_h + SECTION_GAP
+        card2_h = 100
+        card2_box, card2 = _card(card2_top, card2_h, CONTENT_H)
+        page.addSubview_(card2_box)
+        _section_header(card2, "building.2", "Company budget", card2_h)
+        card2.addSubview_(_pos(_small("(optional)", secondary=True),
+                               SECTION_PAD + 22 + 118, SECTION_PAD + 2, 80, 16, card2_h))
 
         self.work_cb = _checkbox("Require a company work-benefit budget",
                                  prev.work_benefits if prev else True)
-        self.work_cb.setFrame_(_rect(0, 174, 400, 18, CONTENT_H))
-        page.addSubview_(self.work_cb)
-        page.addSubview_(_pos(_small("Orders fail rather than charge your own card.",
-                                     secondary=True),
-                              20, 196, 420, 16, CONTENT_H))
+        self.work_cb.setFrame_(_rect(SECTION_PAD, 54, iw, 18, card2_h))
+        card2.addSubview_(self.work_cb)
+        card2.addSubview_(_pos(_small("Orders will fail rather than charge your own card.",
+                                      secondary=True),
+                               SECTION_PAD, 76, iw, 16, card2_h))
 
-        page.addSubview_(_separator(0, 230, CONTENT_W, CONTENT_H))
+        # ---- Card 3: Days ----------------------------------------------------
+        card3_top = card2_top + card2_h + SECTION_GAP
+        card3_h = 110
+        card3_box, card3 = _card(card3_top, card3_h, CONTENT_H)
+        page.addSubview_(card3_box)
+        _section_header(card3, "calendar", "Days", card3_h)
+        card3.addSubview_(_pos(_small("Days to place orders", secondary=True),
+                               SECTION_PAD + 70, SECTION_PAD + 2, 200, 16, card3_h))
 
-        page.addSubview_(_pos(_label("Days", bold=True), 0, 246, 100, 18, CONTENT_H))
+        # Two controls, not one — a visual break between weekdays and the
+        # weekend reads faster than seven identical segments in a row.
         prev_days = set(prev.weekdays) if prev else {1, 2, 3, 4, 5}
-        self.day_seg = NSSegmentedControl.segmentedControlWithLabels_trackingMode_target_action_(
-            [n for n, _ in DAY_NAMES], NSSegmentSwitchTrackingSelectAny, self, None)
-        self.day_seg.setFrame_(_rect(0, 270, 420, 26, CONTENT_H))
-        for i, (_n, num) in enumerate(DAY_NAMES):
-            self.day_seg.setSelected_forSegment_(num in prev_days, i)
-        page.addSubview_(self.day_seg)
+        weekday_names, weekend_names = DAY_NAMES[:5], DAY_NAMES[5:]
+        self.weekday_seg = NSSegmentedControl.segmentedControlWithLabels_trackingMode_target_action_(
+            [n for n, _ in weekday_names], NSSegmentSwitchTrackingSelectAny, self, None)
+        self.weekday_seg.setFrame_(_rect(SECTION_PAD, 54, 340, 26, card3_h))
+        for i, (_n, num) in enumerate(weekday_names):
+            self.weekday_seg.setSelected_forSegment_(num in prev_days, i)
+        card3.addSubview_(self.weekday_seg)
+
+        divider_x = SECTION_PAD + 340 + 14
+        divider = NSBox.alloc().initWithFrame_(_rect(divider_x, 54, 1, 26, card3_h))
+        divider.setBoxType_(NSBoxSeparator)
+        card3.addSubview_(divider)
+
+        self.weekend_seg = NSSegmentedControl.segmentedControlWithLabels_trackingMode_target_action_(
+            [n for n, _ in weekend_names], NSSegmentSwitchTrackingSelectAny, self, None)
+        self.weekend_seg.setFrame_(_rect(divider_x + 14, 54, 140, 26, card3_h))
+        for i, (_n, num) in enumerate(weekend_names):
+            self.weekend_seg.setSelected_forSegment_(num in prev_days, i)
+        card3.addSubview_(self.weekend_seg)
+        card3.addSubview_(_pos(_small("Lunchbot will only place orders on selected days.",
+                                      secondary=True),
+                               SECTION_PAD, 86, iw, 16, card3_h))
+
+        # ---- Card 4: Order confirmation --------------------------------------
+        card4_top = card3_top + card3_h + SECTION_GAP
+        card4_h = 100
+        card4_box, card4 = _card(card4_top, card4_h, CONTENT_H)
+        page.addSubview_(card4_box)
+        _section_header(card4, "bell", "Order confirmation", card4_h)
+
+        self.confirm_cb = _checkbox("Confirm each order before it's placed",
+                                    prev.desktop_confirm.enabled if prev else True)
+        self.confirm_cb.setFrame_(_rect(SECTION_PAD, 54, iw, 18, card4_h))
+        card4.addSubview_(self.confirm_cb)
+        card4.addSubview_(_pos(_small("Off = Yolo mode — orders are placed automatically, "
+                                      "no confirmation dialog.", secondary=True),
+                               SECTION_PAD, 76, iw, 16, card4_h))
+
+        # ---- Footer: help link ------------------------------------------------
+        footer_top = card4_top + card4_h + SECTION_GAP
+        page.addSubview_(_pos(_small("Need help?", secondary=True),
+                              0, footer_top + 3, 80, 16, CONTENT_H))
+        link = _link_button("Visit our FAQ", FAQ_URL)
+        link.setFrame_(_rect(78, footer_top, 140, 20, CONTENT_H))
+        page.addSubview_(link)
         return page
 
     # ---- helpers --------------------------------------------------------
+    def restaurantToggled_(self, _sender):
+        self._update_selected_count()
+
+    def orderTimeChanged_(self, sender):
+        label = self._order_time_labels.get(sender)
+        if label is not None:
+            minutes = LEAD_OPTIONS[sender.indexOfSelectedItem()]
+            label.setStringValue_(_order_time_text(self.lunch_time, minutes))
+
     @objc.python_method
-    def _tier_for(self, minutes):
-        for name in ("fast", "normal", "slow"):
-            if self.tiers.get(name) == minutes:
-                return name.capitalize()
-        return CUSTOM
+    def _update_selected_count(self):
+        n = sum(1 for _s, cb, _pop in self.store_rows if cb.state())
+        self.selected_count_label.setStringValue_(f"{n} selected")
 
     @objc.python_method
     def _preselect_addr(self):
@@ -573,24 +758,11 @@ class PrefsController(NSObject):
     @objc.python_method
     def _collect(self):
         """Read the form into a Config, or show an alert and return None."""
-        try:
-            tiers = {n: int(self.tier_fields[n].stringValue().strip())
-                     for n in ("fast", "normal", "slow")}
-            if any(v <= 0 for v in tiers.values()):
-                raise ValueError
-        except ValueError:
-            self._warn("Lead-time presets must be positive whole minutes.")
-            return None
-
         favorites = []
-        for s, cb, pop, old_minutes in self.store_rows:
+        for s, cb, pop in self.store_rows:
             if not cb.state():
                 continue
-            name = pop.titleOfSelectedItem()
-            if name == CUSTOM:
-                lead = old_minutes if old_minutes is not None else tiers["normal"]
-            else:
-                lead = tiers[name.lower()]
+            lead = LEAD_OPTIONS[pop.indexOfSelectedItem()]
             favorites.append(Favorite(
                 store=s["store"], store_id=s["store_id"],
                 reorder_from=s["order_uuid"], lead_minutes=lead))
@@ -617,8 +789,11 @@ class PrefsController(NSObject):
             self._warn("Max price must be a positive number of dollars.")
             return None
 
-        weekdays = sorted(num for i, (_n, num) in enumerate(DAY_NAMES)
-                          if self.day_seg.isSelectedForSegment_(i)) or [1, 2, 3, 4, 5]
+        selected = [num for i, (_n, num) in enumerate(DAY_NAMES[:5])
+                   if self.weekday_seg.isSelectedForSegment_(i)]
+        selected += [num for i, (_n, num) in enumerate(DAY_NAMES[5:])
+                    if self.weekend_seg.isSelectedForSegment_(i)]
+        weekdays = sorted(selected) or [1, 2, 3, 4, 5]
 
         # Address: index 0 is "(keep current)", so anything above it is a change.
         addr_id = self.prev.delivery_address_id if self.prev else ""
@@ -636,9 +811,11 @@ class PrefsController(NSObject):
             default_tip_cents=(self.prev.default_tip_cents if self.prev else 0),
             lunch_time=_date_to_time(self.time_picker.dateValue()),
             delivery_address_id=addr_id, delivery_address=addr_str,
-            weekdays=weekdays, lead_tiers=tiers, favorites=favorites,
-            desktop_confirm=DesktopConfirmCfg(enabled=True, timeout_seconds=300,
-                                              on_timeout="abort"),
+            weekdays=weekdays,
+            lead_tiers=(dict(self.prev.lead_tiers) if self.prev else dict(DEFAULT_LEAD_TIERS)),
+            favorites=favorites,
+            desktop_confirm=DesktopConfirmCfg(enabled=bool(self.confirm_cb.state()),
+                                              timeout_seconds=300, on_timeout="abort"),
         )
 
     # ---- saving ---------------------------------------------------------
