@@ -1,17 +1,17 @@
 """CLI dispatch: setup | run | gui | prefs | bootstrap | install-agent |
 uninstall-agent | install-gui-agent | uninstall-gui-agent | pause | resume |
-test | skip | status | logs | doctor."""
+test | skip | override | status | logs | doctor."""
 
 from __future__ import annotations
 
 import argparse
 import logging
 import sys
-from datetime import date
+from datetime import date, timedelta
 
 from . import agent, bootstrap, ddcli, paths
 from .config import ConfigError, load_config
-from .state import add_skip_date, load_state
+from .state import add_skip_date, load_state, set_override
 
 
 def _load_cfg_or_die():
@@ -101,6 +101,10 @@ def _cmd_status(_args) -> int:
     skips = state.get("skip_dates", [])
     if skips:
         print(f"skip dates: {', '.join(sorted(skips))}")
+    overrides = state.get("overrides", {})
+    upcoming = {d: s for d, s in overrides.items() if d >= date.today().isoformat()}
+    if upcoming:
+        print("upcoming overrides: " + ", ".join(f"{d}={upcoming[d]}" for d in sorted(upcoming)))
     return 0
 
 
@@ -116,6 +120,18 @@ def _cmd_logs(_args) -> int:
 def _cmd_skip(args) -> int:
     d = args.date or date.today().isoformat()
     print(f"added {d} to skip dates" if add_skip_date(d) else f"{d} already skipped")
+    return 0
+
+
+def _cmd_override(args) -> int:
+    cfg = _load_cfg_or_die()
+    if not any(f.store.lower() == args.store.lower() for f in cfg.favorites):
+        names = ", ".join(f.store for f in cfg.favorites)
+        print(f"no favorite named {args.store!r} — have: {names}", file=sys.stderr)
+        return 2
+    d = args.date or (date.today() + timedelta(days=1)).isoformat()
+    set_override(d, args.store)
+    print(f"{d}: will order {args.store} instead of the usual rotation pick")
     return 0
 
 
@@ -149,6 +165,10 @@ def main(argv=None) -> int:
     sub.add_parser("logs", help="tail the log")
     p_skip = sub.add_parser("skip", help="skip a date (default: today)")
     p_skip.add_argument("date", nargs="?", help="YYYY-MM-DD (default today)")
+    p_override = sub.add_parser(
+        "override", help="force a favorite on a future date (default: tomorrow)")
+    p_override.add_argument("store", help="favorite name, e.g. 'Joe's Diner'")
+    p_override.add_argument("date", nargs="?", help="YYYY-MM-DD (default tomorrow)")
 
     args = parser.parse_args(argv)
     cmd = args.cmd or "setup"
@@ -221,6 +241,10 @@ def main(argv=None) -> int:
         return _cmd_status(args)
     if cmd == "logs":
         return _cmd_logs(args)
+    if cmd == "skip":
+        return _cmd_skip(args)
+    if cmd == "override":
+        return _cmd_override(args)
     parser.print_help()
     return 1
 

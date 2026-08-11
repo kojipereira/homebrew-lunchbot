@@ -31,14 +31,15 @@ order.cleanup_carts_at_store = lambda *_a, **_k: None
 
 # A transient dd-cli hiccup (e.g. a rate limit from repeated shuffling) during
 # the reorder/preview call must not crash the whole run — prepare_candidate
-# should treat it as "not preparable right now" and return None.
+# should treat it as "not preparable right now" (None, reason) rather than
+# propagating the error.
 try:
     def flaky_dd(*_args, **_kwargs):
         raise ddcli.DdError("dd-cli failed (1): rate limited")
     order.dd = flaky_dd
     try:
-        result = order.prepare_candidate(cfg, fav)
-        check(result is None, "a transient dd-cli error yields 'not preparable', not a crash")
+        candidate, _reason = order.prepare_candidate(cfg, fav)
+        check(candidate is None, "a transient dd-cli error yields 'not preparable', not a crash")
     except ddcli.DdError:
         check(False, "a transient dd-cli error should not propagate out of prepare_candidate")
 finally:

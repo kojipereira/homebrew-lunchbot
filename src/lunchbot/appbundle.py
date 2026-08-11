@@ -32,12 +32,35 @@ ICON_FILE = f"{APP_NAME}.icns"
 # "show me Lunchbot", so it puts the sandwich in the menu bar and opens
 # Preferences. If the menu-bar app is already running, that copy keeps the icon
 # and this one only opens the window (see gui/app.py's instance lock).
+#
+# Launched this way (Finder double-click / `open`), an unsigned bundle can
+# start the process fine but never actually paint anything in the menu bar on
+# some macOS versions — proven by testing the identical code both ways. The
+# login LaunchAgent (com.lunchbot.gui, registered by `lunchbot bootstrap`)
+# starts the same process via launchd directly and always renders correctly,
+# so kickstart *that* first when it's already registered, then still launch
+# --prefs: if the kickstarted copy won the singleton lock (see gui/app.py),
+# this invocation just hands off to it and opens the window, exactly as if
+# it had been the one running the icon all along.
 _LAUNCHER_SCRIPT = """\
 #!/bin/sh
+GUI_BIN=""
 for c in /opt/homebrew/bin/lunchbot-gui "$HOME/.local/bin/lunchbot-gui"; do
-  [ -x "$c" ] && exec "$c" --prefs
+  [ -x "$c" ] && GUI_BIN="$c" && break
 done
-if command -v lunchbot-gui >/dev/null 2>&1; then exec lunchbot-gui --prefs; fi
+if [ -z "$GUI_BIN" ] && command -v lunchbot-gui >/dev/null 2>&1; then
+  GUI_BIN="lunchbot-gui"
+fi
+
+if [ -n "$GUI_BIN" ]; then
+  AGENT="gui/$(id -u)/com.lunchbot.gui"
+  if launchctl print "$AGENT" >/dev/null 2>&1; then
+    launchctl kickstart -k "$AGENT" >/dev/null 2>&1
+    sleep 1
+  fi
+  exec "$GUI_BIN" --prefs
+fi
+
 if command -v lunchbot >/dev/null 2>&1; then exec lunchbot gui --prefs; fi
 exec /usr/bin/osascript -e 'display alert "Lunchbot" message "lunchbot is not on your PATH. Install it (brew install ... / ./install.sh) and try again."'
 """

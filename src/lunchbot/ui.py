@@ -147,14 +147,22 @@ def ask_retry(title: str, body: str, timeout: int = 300) -> bool:
     return choice == "Try again"
 
 
-def ask_retry_or_skip(title: str, body: str, timeout: int = 300) -> str:
-    """Show an error with three choices when nothing was orderable this cycle.
-    Returns 'Try again' | 'Skip time slot' | 'Skip today'. A timeout behaves
-    like 'Skip time slot' (least destructive fallback — a later slot, if any,
-    still gets its own chance)."""
+def ask_retry_or_skip(title: str, body: str, timeout: int = 300,
+                      allow_skip_slot: bool = True) -> str:
+    """Show an error with Try again / [Skip time slot /] Skip today. Returns
+    'Try again' | 'Skip time slot' | 'Skip today'. Without allow_skip_slot —
+    a one-off single-pick request (--pick, an "order tomorrow" override, or
+    Order now), where there's no later tier to defer to — only Try again /
+    Skip today are offered. A timeout behaves like the least destructive
+    option available: Skip time slot when offered, else Skip today."""
+    fallback = "Skip time slot" if allow_skip_slot else "Skip today"
+    valid = (("Try again", "Skip today", "Skip time slot") if allow_skip_slot
+            else ("Try again", "Skip today"))
+    buttons = ('{"Skip today", "Skip time slot", "Try again"}' if allow_skip_slot
+              else '{"Skip today", "Try again"}')
     core = (
         f'set r to display dialog "{_esc(body)}" '
-        f'buttons {{"Skip today", "Skip time slot", "Try again"}} default button "Try again" '
+        f'buttons {buttons} default button "Try again" '
         f'with title "{_esc(title)}" with icon caution giving up after {timeout}\n'
         'if gave up of r then return "TIMEOUT"\n'
         'return button returned of r'
@@ -163,10 +171,10 @@ def ask_retry_or_skip(title: str, body: str, timeout: int = 300) -> str:
     if r.returncode != 0 and _is_tcc_denied(r.stderr):
         r = _osascript(core, timeout=timeout + 30)
     if r.returncode != 0:
-        return "Skip time slot"
+        return fallback
     choice = r.stdout.strip()
     logging.info("ask_retry_or_skip: %s", choice)
-    return choice if choice in ("Try again", "Skip today", "Skip time slot") else "Skip time slot"
+    return choice if choice in valid else fallback
 
 
 def ask_sign_in(body: str) -> bool:

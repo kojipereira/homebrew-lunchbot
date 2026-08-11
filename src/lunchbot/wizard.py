@@ -140,6 +140,9 @@ def setup() -> int:
                             (prev.price_cap_cents // 100) if prev else 25)
     work_benefits = ask_bool("Require a company work-benefit budget (fail without one)?",
                              prev.work_benefits if prev else True)
+    confirm_before_ordering = ask_bool(
+        "Confirm each order before it's placed? (No = Yolo mode, orders go through automatically)",
+        prev.desktop_confirm.enabled if prev else True)
 
     # Weekday selection
     prev_weekdays = prev.weekdays if prev else [1, 2, 3, 4, 5]
@@ -156,7 +159,8 @@ def setup() -> int:
         lunch_time=lunch_time, default_expense_code="", default_expense_note="",
         delivery_address_id=delivery_address_id, delivery_address=delivery_address,
         weekdays=weekdays, favorites=favorites,
-        desktop_confirm=DesktopConfirmCfg(enabled=True, timeout_seconds=300, on_timeout="abort"),
+        desktop_confirm=DesktopConfirmCfg(enabled=confirm_before_ordering,
+                                          timeout_seconds=300, on_timeout="abort"),
     )
 
     # Live fulfillment probe — drop stores that don't support the chosen mode.

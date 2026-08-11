@@ -10,8 +10,8 @@ from datetime import date, datetime
 from . import ddcli
 from .config import Config, Favorite
 from .order import delete_cart, prepare_candidate, submit_and_record
-from .state import add_skip_date, already_ordered_today
-from .ui import ask_retry, ask_retry_or_skip, desktop_confirm, notify
+from .state import add_skip_date, already_ordered_today, get_override
+from .ui import ask_retry_or_skip, desktop_confirm, notify
 
 LEAD_TIME_TOLERANCE_MIN = 10
 
@@ -73,19 +73,30 @@ def run(cfg: Config, state: dict, force_pick: str | None, dry_run_override: bool
     logging.info("lead-to-lunch: %d min (lunch=%s, now=%s)",
                  lead_now, cfg.lunch_time, now.strftime("%H:%M"))
 
-    if force_pick:
-        matches = [f for f in cfg.favorites if f.store.lower() == force_pick.lower()]
+    # An explicit --pick wins; otherwise a "order tomorrow" override set for
+    # today takes the same single-favorite path instead of the pool rotation.
+    # Gates above (weekday/skip/already-ordered) already ran either way — an
+    # override changes *which* favorite fires, not whether today fires at all.
+    pick = force_pick or get_override(today_iso)
+    if pick:
+        matches = [f for f in cfg.favorites if f.store.lower() == pick.lower()]
         if not matches:
-            raise RuntimeError(f"no favorite named {force_pick!r}")
+            raise RuntimeError(f"no favorite named {pick!r}")
         fav = matches[0]
         candidate = None
         while candidate is None:
-            candidate = prepare_candidate(cfg, fav)
+            candidate, reason = prepare_candidate(cfg, fav)
             if candidate is None:
-                if ask_retry("Lunchbot: couldn't order",
-                             f"Couldn't prepare {fav.store} right now (unavailable "
-                             "or over your cap). Try again?"):
+                choice = ask_retry_or_skip(
+                    "Lunchbot: couldn't order",
+                    f"{fav.store} isn't orderable right now: "
+                    f"{reason.rstrip('.')}. Try again?", allow_skip_slot=False)
+                if choice == "Try again":
                     continue
+                if choice == "Skip today":
+                    add_skip_date(today_iso)
+                    notify("Lunchbot: skipped today", f"{fav.store} — {reason}")
+                    return
                 raise RuntimeError(f"{fav.store} failed guards — see log")
         cart_uuid, items, line_items, total_cents, fulfillment, budget, team_id = candidate
         answer = (desktop_confirm(cfg, fav, items, line_items, total_cents, fulfillment,
@@ -116,11 +127,12 @@ def run(cfg: Config, state: dict, force_pick: str | None, dry_run_override: bool
     n = len(pool)
     idx = 0
     fail_streak = 0  # consecutive un-preparable candidates
+    last_reason = "not available"
 
     while True:
         _, fav = pool[idx]
         logging.info("candidate [%d/%d]: %s", idx + 1, n, fav.store)
-        candidate = prepare_candidate(cfg, fav)
+        candidate, last_reason = prepare_candidate(cfg, fav)
         if candidate is None:
             fail_streak += 1
             if fail_streak >= n:  # a full cycle, none preparable
@@ -128,8 +140,8 @@ def run(cfg: Config, state: dict, force_pick: str | None, dry_run_override: bool
                 choice = ask_retry_or_skip(
                     "Lunchbot: couldn't order",
                     "None of your restaurants are orderable right now "
-                    "(unavailable or over your cap). Try again, skip this time "
-                    "slot, or skip today?")
+                    f"(last: {fav.store} — {last_reason.rstrip('.')}). Try "
+                    "again, skip this time slot, or skip today?")
                 if choice == "Try again":
                     fail_streak = 0
                     random.shuffle(pool)
@@ -139,7 +151,7 @@ def run(cfg: Config, state: dict, force_pick: str | None, dry_run_override: bool
                     add_skip_date(today_iso)
                     notify("Lunchbot: skipped today", "No more orders will be offered today")
                     return
-                notify("Lunchbot: skipped time slot", "No restaurants were orderable")
+                notify("Lunchbot: skipped time slot", f"{fav.store} — {last_reason}")
                 return
             idx = (idx + 1) % n   # Shuffle wraps: after the last, back to the first
             continue

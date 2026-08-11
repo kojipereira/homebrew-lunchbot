@@ -18,6 +18,7 @@ import os
 import plistlib
 import sys
 import tempfile
+from datetime import datetime
 from pathlib import Path
 
 logging.disable(logging.CRITICAL)   # the swallow paths log expected failures
@@ -137,8 +138,51 @@ check(second.acquire() is True, "releasing hands the lock to the next process")
 second.release()
 
 # --- 4. opening Lunchbot.app -------------------------------------------------
-check(AB._LAUNCHER_SCRIPT.count("--prefs") == 3,
+# Every reachable exec passes --prefs: once via GUI_BIN (covers both the brew
+# and dev-install launcher paths, resolved once), once via the `lunchbot gui`
+# fallback.
+check(AB._LAUNCHER_SCRIPT.count("--prefs") == 2,
       "Lunchbot.app passes --prefs down every launcher fallback")
+# An unsigned bundle launched via Finder/`open` can start the process but
+# never paint anything in the menu bar on some macOS versions (proven by
+# testing) — kickstarting the already-registered login agent first, before
+# falling through to direct exec, is the actual fix; both must be present.
+check("launchctl kickstart" in AB._LAUNCHER_SCRIPT,
+      "opening Lunchbot.app kickstarts the login agent if it's registered")
+check(A.GUI_LABEL in AB._LAUNCHER_SCRIPT,
+      "the launcher targets the same LaunchAgent label agent.py registers")
+check(AB._LAUNCHER_SCRIPT.index("launchctl kickstart")
+      < AB._LAUNCHER_SCRIPT.rindex("--prefs"),
+      "the kickstart attempt happens before the direct-exec fallback")
+
+# --- an "order tomorrow" override is surfaced, not an invisible state -------
+from lunchbot.config import Config, Favorite, write_config  # noqa: E402
+from lunchbot.state import set_override  # noqa: E402
+
+write_config(Config(
+    lunch_time="12:00", weekdays=[1, 2, 3, 4, 5],
+    favorites=[Favorite("Overridden Spot", "1", "1", lead_minutes=30)],
+))
+
+
+class _FixedNow(datetime):
+    @classmethod
+    def now(cls):
+        return cls(2026, 8, 11, 9, 0)   # a Tuesday, before the 11:30 fire
+
+
+old_dt, old_loaded = app.datetime, A.is_loaded
+app.datetime = _FixedNow
+A.is_loaded = lambda: True
+try:
+    check(app._status_text() == "Next: Tue 11:30",
+          "no override -> plain 'Next:' status")
+    set_override("2026-08-11", "Overridden Spot")
+    check(app._status_text() == "Next: Tue 11:30 → Overridden Spot",
+          "an override for the next fire date is surfaced in the status line")
+finally:
+    app.datetime = old_dt
+    A.is_loaded = old_loaded
 
 check(app._parse_args([]).prefs is False, "plain `lunchbot-gui` opens no window")
 check(app._parse_args(["--prefs"]).prefs is True, "--prefs is understood")
