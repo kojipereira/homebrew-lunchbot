@@ -10,7 +10,7 @@ import time
 from datetime import datetime
 
 from .config import Config, Favorite
-from .ddcli import dd
+from .ddcli import DdError, NotLoggedIn, TlsError, dd
 from .state import save_state
 from .ui import ask_retry, show_alert
 
@@ -121,10 +121,25 @@ def modes_for(cfg: Config) -> list[str]:
 def prepare_candidate(cfg: Config, fav: Favorite) -> Candidate | None:
     """Cleanup orphans → try each allowed fulfillment mode (reorder → preview →
     guards) and return the first candidate that passes. Always deletes its own
-    cart on failure so we never leak carts. None if nothing passes."""
+    cart on failure so we never leak carts (a mode attempt that raises mid-way
+    may leave one behind; the next call's cleanup_carts_at_store sweeps it up).
+    None if nothing passes.
+
+    A transient dd-cli failure (flaky network, a rate limit — common when
+    shuffling repeatedly fires several reorder/preview calls in quick
+    succession) is treated as "this mode isn't available right now" rather
+    than crashing the whole run; NotLoggedIn/TlsError still propagate since
+    those need the user to actually do something (sign in / fix a proxy).
+    """
     cleanup_carts_at_store(fav.store_id)
     for mode in modes_for(cfg):
-        cand = _try_mode(cfg, fav, mode)
+        try:
+            cand = _try_mode(cfg, fav, mode)
+        except (NotLoggedIn, TlsError):
+            raise
+        except DdError as e:
+            logging.warning("%s: %s attempt failed transiently, skipping: %s", fav.store, mode, e)
+            continue
         if cand:
             return cand
     return None
