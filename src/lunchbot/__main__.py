@@ -167,7 +167,7 @@ def main(argv=None) -> int:
     p_skip.add_argument("date", nargs="?", help="YYYY-MM-DD (default today)")
     p_override = sub.add_parser(
         "override", help="force a favorite on a future date (default: tomorrow)")
-    p_override.add_argument("store", help="favorite name, e.g. 'Fake Sandwich Shop'")
+    p_override.add_argument("store", help="favorite name, e.g. 'Joe's Diner'")
     p_override.add_argument("date", nargs="?", help="YYYY-MM-DD (default tomorrow)")
 
     args = parser.parse_args(argv)
