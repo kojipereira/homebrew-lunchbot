@@ -29,7 +29,7 @@ import threading
 import objc
 from AppKit import (NSAlert, NSApp, NSApplication,
                     NSApplicationActivationPolicyRegular, NSBackingStoreBuffered,
-                    NSBezelBorder, NSBox, NSBoxSeparator, NSButton,
+                    NSBezelBorder, NSBezierPath, NSBox, NSBoxSeparator, NSButton,
                     NSButtonTypeSwitch, NSColor, NSDatePicker,
                     NSForegroundColorAttributeName, NSFont, NSImage, NSImageView,
                     NSMenu, NSMenuItem, NSPopUpButton, NSProgressIndicator,
@@ -41,9 +41,10 @@ from AppKit import (NSAlert, NSApp, NSApplication,
                     NSWindowStyleMaskMiniaturizable, NSWindowStyleMaskTitled,
                     NSWorkspace)
 from Foundation import (NSCalendar, NSCalendarUnitHour, NSCalendarUnitMinute,
-                        NSDateComponents, NSMakeRect, NSObject, NSTimer, NSURL)
+                        NSDateComponents, NSMakeRect, NSMakeSize, NSObject,
+                        NSTimer, NSURL)
 
-from .. import agent, ddcli, paths, setup_core
+from .. import agent, appbundle, ddcli, paths, setup_core
 from ..config import (DEFAULT_LEAD_TIERS, Config, DesktopConfirmCfg, Favorite,
                       load_config, write_config)
 from ..state import set_schedule_paused
@@ -574,7 +575,12 @@ class PrefsController(NSObject):
     def _build_settings_page(self):
         page = self._new_page()
         prev = self.prev
-        iw = CONTENT_W - 2 * SECTION_PAD    # usable width inside a card
+        # Body content aligns with the section title's text, not its icon —
+        # SECTION_PAD is the icon's own left edge; indent is where the title
+        # text next to it actually starts (see _section_header).
+        indent = SECTION_PAD + 22
+        right_margin = CONTENT_W - SECTION_PAD   # card's right inner edge
+        iw = right_margin - indent               # usable width for indented content
 
         # ---- Card 1: Order preferences --------------------------------------
         card1_h = 250
@@ -583,38 +589,38 @@ class PrefsController(NSObject):
         _section_header(card1, "fork.knife", "Order preferences", card1_h)
 
         ful = prev.fulfillment if prev else "pickup"
-        card1.addSubview_(_pos(_label("Fulfillment"), SECTION_PAD, 54, 90, 18, card1_h))
+        card1.addSubview_(_pos(_label("Fulfillment"), indent, 54, 90, 18, card1_h))
         self.pickup_cb = _checkbox("Pickup", ful in ("pickup", "either"))
-        self.pickup_cb.setFrame_(_rect(SECTION_PAD + 100, 54, 90, 18, card1_h))
+        self.pickup_cb.setFrame_(_rect(indent + 100, 54, 90, 18, card1_h))
         self.delivery_cb = _checkbox("Delivery", ful in ("delivery", "either"))
-        self.delivery_cb.setFrame_(_rect(SECTION_PAD + 200, 54, 90, 18, card1_h))
+        self.delivery_cb.setFrame_(_rect(indent + 200, 54, 90, 18, card1_h))
         card1.addSubview_(self.pickup_cb)
         card1.addSubview_(self.delivery_cb)
         card1.addSubview_(_pos(_small("Both → whichever each restaurant supports.",
                                       secondary=True, truncate=True),
-                               SECTION_PAD + 310, 55, iw - 310, 16, card1_h))
+                               indent + 310, 55, right_margin - (indent + 310), 16, card1_h))
 
         self.addr_titles = _unique([KEEP_CURRENT]
                                    + [_addr_label(a) for a in self.addresses])
-        card1.addSubview_(_pos(_label("Order to"), SECTION_PAD, 90, 150, 18, card1_h))
+        card1.addSubview_(_pos(_label("Order to"), indent, 90, 150, 18, card1_h))
         self.addr_pop = _popup(self.addr_titles, self._preselect_addr(), width=iw)
-        self.addr_pop.setFrame_(_rect(SECTION_PAD, 112, iw, 25, card1_h))
+        self.addr_pop.setFrame_(_rect(indent, 112, iw, 25, card1_h))
         card1.addSubview_(self.addr_pop)
         card1.addSubview_(_pos(_small("Where orders will be sent.", secondary=True),
-                               SECTION_PAD, 140, iw, 16, card1_h))
+                               indent, 140, iw, 16, card1_h))
 
         # Lunch time and Max price side by side.
-        card1.addSubview_(_pos(_label("Lunch time"), SECTION_PAD, 168, 150, 18, card1_h))
+        card1.addSubview_(_pos(_label("Lunch time"), indent, 168, 150, 18, card1_h))
         self.time_picker = NSDatePicker.alloc().initWithFrame_(
-            _rect(SECTION_PAD, 190, 130, 24, card1_h))
+            _rect(indent, 190, 130, 24, card1_h))
         self.time_picker.setDatePickerStyle_(DATE_PICKER_TEXTFIELD_AND_STEPPER)
         self.time_picker.setDatePickerElements_(DATE_PICKER_HOUR_MINUTE)
         self.time_picker.setDateValue_(_time_to_date(prev.lunch_time if prev else "12:00"))
         card1.addSubview_(self.time_picker)
         card1.addSubview_(_pos(_small("Default time for daily orders.", secondary=True),
-                               SECTION_PAD, 216, 300, 16, card1_h))
+                               indent, 216, 300, 16, card1_h))
 
-        price_x = SECTION_PAD + 380
+        price_x = indent + 380
         card1.addSubview_(_pos(_label("Max price"), price_x, 168, 150, 18, card1_h))
         card1.addSubview_(_pos(_label("$"), price_x, 193, 12, 18, card1_h))
         self.price_field = _field((prev.price_cap_cents // 100) if prev else 25)
@@ -622,7 +628,7 @@ class PrefsController(NSObject):
         card1.addSubview_(self.price_field)
         card1.addSubview_(_pos(_small("Only show restaurants at or below this price.",
                                       secondary=True, truncate=True),
-                               price_x, 216, iw - 380, 16, card1_h))
+                               price_x, 216, right_margin - price_x, 16, card1_h))
 
         # ---- Card 2: Company budget (optional) ------------------------------
         card2_top = card1_h + SECTION_GAP
@@ -631,15 +637,15 @@ class PrefsController(NSObject):
         page.addSubview_(card2_box)
         _section_header(card2, "building.2", "Company budget", card2_h)
         card2.addSubview_(_pos(_small("(optional)", secondary=True),
-                               SECTION_PAD + 22 + 118, SECTION_PAD + 2, 80, 16, card2_h))
+                               indent + 118, SECTION_PAD + 2, 80, 16, card2_h))
 
         self.work_cb = _checkbox("Require a company work-benefit budget",
                                  prev.work_benefits if prev else True)
-        self.work_cb.setFrame_(_rect(SECTION_PAD, 54, iw, 18, card2_h))
+        self.work_cb.setFrame_(_rect(indent, 54, iw, 18, card2_h))
         card2.addSubview_(self.work_cb)
         card2.addSubview_(_pos(_small("Orders will fail rather than charge your own card.",
                                       secondary=True),
-                               SECTION_PAD, 76, iw, 16, card2_h))
+                               indent, 76, iw, 16, card2_h))
 
         # ---- Card 3: Days ----------------------------------------------------
         card3_top = card2_top + card2_h + SECTION_GAP
@@ -656,12 +662,12 @@ class PrefsController(NSObject):
         weekday_names, weekend_names = DAY_NAMES[:5], DAY_NAMES[5:]
         self.weekday_seg = NSSegmentedControl.segmentedControlWithLabels_trackingMode_target_action_(
             [n for n, _ in weekday_names], NSSegmentSwitchTrackingSelectAny, self, None)
-        self.weekday_seg.setFrame_(_rect(SECTION_PAD, 54, 340, 26, card3_h))
+        self.weekday_seg.setFrame_(_rect(indent, 54, 340, 26, card3_h))
         for i, (_n, num) in enumerate(weekday_names):
             self.weekday_seg.setSelected_forSegment_(num in prev_days, i)
         card3.addSubview_(self.weekday_seg)
 
-        divider_x = SECTION_PAD + 340 + 14
+        divider_x = indent + 340 + 14
         divider = NSBox.alloc().initWithFrame_(_rect(divider_x, 54, 1, 26, card3_h))
         divider.setBoxType_(NSBoxSeparator)
         card3.addSubview_(divider)
@@ -674,7 +680,7 @@ class PrefsController(NSObject):
         card3.addSubview_(self.weekend_seg)
         card3.addSubview_(_pos(_small("Lunchbot will only place orders on selected days.",
                                       secondary=True),
-                               SECTION_PAD, 86, iw, 16, card3_h))
+                               indent, 86, iw, 16, card3_h))
 
         # ---- Card 4: Order confirmation --------------------------------------
         card4_top = card3_top + card3_h + SECTION_GAP
@@ -685,11 +691,11 @@ class PrefsController(NSObject):
 
         self.confirm_cb = _checkbox("Confirm each order before it's placed",
                                     prev.desktop_confirm.enabled if prev else True)
-        self.confirm_cb.setFrame_(_rect(SECTION_PAD, 54, iw, 18, card4_h))
+        self.confirm_cb.setFrame_(_rect(indent, 54, iw, 18, card4_h))
         card4.addSubview_(self.confirm_cb)
         card4.addSubview_(_pos(_small("Off = Yolo mode — orders are placed automatically, "
                                       "no confirmation dialog.", secondary=True),
-                               SECTION_PAD, 76, iw, 16, card4_h))
+                               indent, 76, iw, 16, card4_h))
 
         # ---- Footer: help link ------------------------------------------------
         footer_top = card4_top + card4_h + SECTION_GAP
@@ -948,11 +954,42 @@ def _install_main_menu(app):
 
 _controller = None   # module-level: AppKit holds targets weakly
 
+DOCK_ICON_CORNER_RATIO = 0.1804   # approximates Apple's Big Sur+ icon corner radius
+
+
+def _dock_icon_image():
+    """A rounded-rect-clipped copy of the bundled icon, for
+    setApplicationIconImage_. Unlike Finder/LaunchServices, that API shows
+    the image exactly as given — it does not apply the usual squircle mask —
+    so without this the Dock icon has hard square corners. Only worth doing
+    here: this window runs with Regular activation policy (a real Dock/
+    Cmd+Tab presence, shown as the underlying Python interpreter's own
+    identity, not Lunchbot.app's — see appbundle.py's module docstring for
+    why); the menu-bar app itself is an Accessory-policy app with no Dock
+    icon at all, so the same fix there would have nothing to attach to."""
+    if not appbundle.ICON_SOURCE.is_file():
+        return None
+    src = NSImage.alloc().initWithContentsOfFile_(str(appbundle.ICON_SOURCE))
+    if src is None or not src.isValid():
+        return None
+    size = NSMakeSize(512, 512)
+    rounded = NSImage.alloc().initWithSize_(size)
+    rounded.lockFocus()
+    rect = NSMakeRect(0, 0, 512, 512)
+    radius = 512 * DOCK_ICON_CORNER_RATIO
+    NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(rect, radius, radius).addClip()
+    src.drawInRect_(rect)
+    rounded.unlockFocus()
+    return rounded
+
 
 def run() -> int:
     global _controller
     app = NSApplication.sharedApplication()
     app.setActivationPolicy_(NSApplicationActivationPolicyRegular)
+    icon = _dock_icon_image()
+    if icon is not None:
+        app.setApplicationIconImage_(icon)
     _install_main_menu(app)
     _controller = PrefsController.alloc().init()
     _controller.show()
