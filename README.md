@@ -17,7 +17,8 @@ DoorDash CLI.
 - **Apple Silicon Mac.** `dd-cli` ships arm64-only.
 - **`dd-cli`, which you install yourself.** lunchbot does not bundle or download
   it — see [Getting dd-cli](#getting-dd-cli).
-- **Homebrew.** Python is installed for you as a formula dependency.
+- **Homebrew — only for Options B and C below.** Option A (drag to
+  Applications) is self-contained and needs no Homebrew and no separate Python.
 
 ## Install
 
