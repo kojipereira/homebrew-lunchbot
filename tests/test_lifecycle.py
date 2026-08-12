@@ -10,6 +10,7 @@ import os
 import sys
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 
 logging.disable(logging.CRITICAL)  # the swallow paths log expected tracebacks
 
@@ -108,6 +109,37 @@ A._launchctl = lambda *a, **k: calls.append(a) or type("R", (), {"returncode": 0
 REAL_STOP_AGENT()
 check(calls == [("bootout", f"gui/{os.getuid()}/{A.LABEL}")],
       "stop_agent only boots out (no disable), unlike pause_agent")
+
+# --- enable must precede bootstrap ------------------------------------------
+# launchd refuses to bootstrap a *disabled* job, failing with "Bootstrap
+# failed: 5: Input/output error". With enable after bootstrap, pause_agent()
+# (which disables) left the schedule permanently unresumable — bootstrap raised
+# before the enable meant to undo it ever ran. Nothing about this ordering is
+# visible until someone pauses, so pin it here.
+# install_agent reads the config to derive fire times, so this one needs more
+# than FAKE_CFG's bare object().
+SCHED_CFG = SimpleNamespace(
+    lunch_time="12:00",
+    weekdays=[1, 2, 3, 4, 5],
+    favorites=[SimpleNamespace(lead_minutes=30)],
+)
+
+for label, install in (
+    (A.LABEL, lambda: A.install_agent(SCHED_CFG)),
+    (A.GUI_LABEL, A.install_gui_agent),
+):
+    calls = []
+    A._launchctl = lambda *a, **k: calls.append(a) or type("R", (), {"returncode": 0})()
+    saved_exists = Path.exists
+    try:
+        Path.exists = lambda self: True          # launcher presence check
+        install()
+    finally:
+        Path.exists = saved_exists
+    verbs = [c[0] for c in calls]
+    check("enable" in verbs and "bootstrap" in verbs
+          and verbs.index("enable") < verbs.index("bootstrap"),
+          f"{label}: enable precedes bootstrap (a disabled job can't bootstrap)")
 
 print()
 if failures:

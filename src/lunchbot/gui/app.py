@@ -22,7 +22,7 @@ import sys
 import threading
 from datetime import datetime, timedelta
 
-from .. import agent, paths, setup_core, singleton
+from .. import agent, bootstrap, paths, setup_core, singleton
 from ..config import ConfigError, load_config
 from ..state import (add_skip_date, already_ordered_today, clear_override,
                      get_override, load_state, set_override, set_schedule_paused)
@@ -243,6 +243,14 @@ def main(argv=None) -> int:
         def _restore_schedule(self):
             """On launch, bring the ordering schedule back to its last state.
             Runs on a background thread — never touch rumps UI here."""
+            # A dragged-in Lunchbot.app reaches this file directly, without ever
+            # passing through the CLI's bootstrap.auto(), so this is the only
+            # place that registers its login agent. No-op for Homebrew installs.
+            try:
+                for line in bootstrap.provision_from_bundle():
+                    logging.info("bundle provisioning: %s", line)
+            except Exception:  # noqa: BLE001 — never block startup
+                logging.exception("bundle provisioning failed (ignored)")
             _restore_schedule_quietly()
 
         def _refresh_once(self, timer):

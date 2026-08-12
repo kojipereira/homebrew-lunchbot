@@ -29,18 +29,26 @@ Download `dd-cli` for Apple Silicon https://github.com/doordash-oss/doordash-cli
 
 dd-cli is on beta to request access fill this form: https://docs.google.com/forms/d/e/1FAIpQLScMG2Echsfy14CT_6MAHVsW6Hw6oNkz1BOiOj5RIzvcMRRrpA/viewform?edit2=2_ABaOnucwosS05Lsnk_JM-8rgIwZXhjjd2iOcdDNp3dt2JBw8LLQztu_dnCm3mR3G7A
 
-### Option A — download & double-click (no terminal)
+### Option A — drag to Applications (no terminal, nothing else to install)
 
 1. Go to the [**Releases**](https://github.com/kojipereira/homebrew-lunchbot/releases)
-   page and download **`Lunchbot-Installer-<version>.tar.gz`**.
-2. Double-click it in Finder to expand it into a **`Lunchbot Installer`** folder.
-3. Double-click **`Install Lunchbot.command`** inside.
-   (If macOS says it can't be opened, right-click it → **Open** → **Open** — it's
-   unsigned. One time only.)
+   page and download **`Lunchbot-<version>.dmg`**.
+2. Open it and drag **Lunchbot** onto the **Applications** shortcut.
+3. Open Lunchbot from Applications.
 
-That installs Lunchbot, adds the 🥪 menu-bar app + a clickable `Lunchbot.app`, and
-opens Preferences so you can pick your restaurants. To remove it later, double-click
-**`Uninstall Lunchbot.command`** in the same folder.
+The app is self-contained — it carries its own Python, so it needs no Homebrew
+and no separate runtime. On first launch it puts the 🥪 in your menu bar, opens
+Preferences so you can pick restaurants, and registers itself to start at login.
+It also links `~/.local/bin/lunchbot` so the CLI works in a terminal.
+
+> **First launch:** this build isn't notarized yet, so macOS blocks it once.
+> Open **System Settings → Privacy & Security**, scroll to the message about
+> Lunchbot, and click **Open Anyway**. (Control-clicking the app no longer works
+> as a bypass — Apple removed that in macOS 15.)
+
+> **Open it from Applications, not from the disk image.** Run straight from the
+> mounted DMG and Lunchbot won't schedule anything, because every path it would
+> record disappears when you eject. It tells you so rather than half-installing.
 
 ### Option B — Homebrew (terminal)
 
@@ -59,15 +67,32 @@ also drops a **Lunchbot.app** in `~/Applications` (double-click it, drag it to
 the Dock) and registers the 🥪 menu-bar app so it starts now and at every login
 — you don't run `install-app` or `install-gui-agent` yourself.
 
+### Option C — download & double-click an installer
+
+1. Download **`Lunchbot-Installer-<version>.tar.gz`** from the Releases page.
+2. Double-click it in Finder to expand it into a **`Lunchbot Installer`** folder.
+3. Double-click **`Install Lunchbot.command`** inside.
+   (If macOS says it can't be opened, right-click it → **Open** → **Open**.)
+
+This is the older no-terminal path. It installs via Homebrew under the hood, so
+it needs Homebrew present. To remove it later, double-click
+**`Uninstall Lunchbot.command`** in the same folder.
+
 ## Updates
+
+If you installed the **.dmg**, download the newer one and drag it over the old
+copy, replacing it. (There's no in-app auto-update yet — see
+[Notes for maintainers](#notes-for-maintainers).)
+
+If you installed via **Homebrew**:
 
 ```sh
 brew update
 brew upgrade lunchbot
 ```
 
-Your config, schedule, and login are untouched. The menu-bar app relaunches on
-the new version automatically.
+Either way your config, schedule, and login are untouched. The menu-bar app
+relaunches on the new version automatically.
 
 
 ## CLI equivalents
@@ -154,8 +179,37 @@ persist unless you remove them.
   `gui/prefs.py` is a stub that lazily imports `gui/prefs_window.py`, which is
   the only module that touches AppKit at import time.
 - Two launchd agents: `com.lunchbot.agent` (the daily order) and `com.lunchbot.gui`
-  (the menu-bar app). Both target the stable `/opt/homebrew/bin` symlinks, so
-  `brew upgrade` never rewrites a plist.
+  (the menu-bar app). `agent._resolve_launcher` targets, in order: the executables
+  inside a self-contained `Lunchbot.app`, the stable `/opt/homebrew/bin` symlinks
+  (so `brew upgrade` never rewrites a plist), then `~/.local/bin`.
+- **Three distribution channels, one codebase.** `build.sh` makes the
+  pip-installable tarball the Homebrew formula consumes plus the double-click
+  installer; `build-app.sh` makes the self-contained `.app` and its `.dmg`.
+  `release.sh` builds and attaches all three.
+- **The self-contained bundle** (`build-app.sh`) embeds a pinned relocatable
+  CPython from python-build-standalone, matching the formula's `python@3.13`.
+  It is *not* py2app: lunchbot needs two entry points out of one bundle — the
+  menu-bar GUI and the `lunchbot run` CLI that launchd fires at lunchtime — and
+  an embedded interpreter makes both three-line shell shims. Layout gotchas
+  worth knowing before you move anything:
+  - The interpreter lives in `Contents/Resources/python`, **not**
+    `Contents/Frameworks`. `codesign` enforces framework layout on everything
+    under `Frameworks` and rejects a CPython tree outright.
+  - `bundle.py` identifies a real bundle by the embedded interpreter, so the
+    Homebrew-installed `Lunchbot.app` — a shell stub that execs `lunchbot-gui` —
+    is correctly *not* treated as one.
+  - `bundle.is_ephemeral()` refuses to register agents when the app is running
+    from a mounted DMG or an App Translocation path, since those paths are gone
+    by the next launch.
+  - A dragged `.app` enters `gui/app.py:main()` directly and never passes through
+    the CLI's `bootstrap.auto()`, so `bootstrap.provision_from_bundle()` — called
+    from the GUI's background startup thread — is the only thing that registers
+    its login agent.
+  - Builds are ad-hoc signed. Set `LUNCHBOT_SIGN_IDENTITY` to a Developer ID
+    Application cert and notarize the DMG with `notarytool` to drop the
+    first-launch System Settings detour. Until then the drag path is friendlier
+    *after* install but harsher on the very first open than `brew`, whose
+    downloads are never quarantined.
 - The GUI agent keys `KeepAlive` on `SuccessfulExit: false`, so a clean quit is
   final and only a crash relaunches. `bootstrap.py` compares the installed plist
   against `agent.generate_gui_plist_bytes()` and rewrites it when they differ —
@@ -183,7 +237,10 @@ persist unless you remove them.
   `test_appbundle.py` checks the `.icns` is present and well-formed and that
   `install_app` wires it into the bundle; `test_gui_launch.py` covers the launch
   lifecycle (quit stays quit, a stale plist is rewritten, one instance at a time,
-  `--prefs` reaching the app).
+  `--prefs` reaching the app); `test_bundle.py` covers self-contained-bundle
+  detection against fabricated bundles in a temp dir — including that the
+  Homebrew stub is not mistaken for one and that `install_app` doesn't write a
+  second app beside a real bundle.
 - Distribution is a self-contained Homebrew tap at
   [`kojipereira/homebrew-lunchbot`](https://github.com/kojipereira/homebrew-lunchbot):
   the source, `Formula/lunchbot.rb`, and the release live in one repo.
