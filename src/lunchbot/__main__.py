@@ -11,7 +11,7 @@ from datetime import date, timedelta
 
 from . import agent, bootstrap, ddcli, paths
 from .config import ConfigError, load_config
-from .state import add_skip_date, load_state, set_override
+from .state import add_skip_date, load_state, set_override, set_schedule_paused
 
 
 def _load_cfg_or_die():
@@ -227,10 +227,14 @@ def main(argv=None) -> int:
         return 0
     if cmd == "pause":
         agent.pause_agent()
+        # Record the intent too, or the menu-bar app's next launch would see an
+        # un-paused state and restore the schedule out from under this pause.
+        set_schedule_paused(True)
         print("agent paused")
         return 0
     if cmd == "resume":
         agent.resume_agent(_load_cfg_or_die())
+        set_schedule_paused(False)
         print("agent resumed")
         return 0
     if cmd == "test":
