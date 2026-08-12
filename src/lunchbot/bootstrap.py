@@ -19,7 +19,7 @@ from __future__ import annotations
 import json
 import logging
 
-from . import agent, appbundle, paths
+from . import agent, appbundle, bundle, paths
 from .__init__ import __version__
 
 STAMP_PATH = paths.STATE_DIR / "bootstrap.json"
@@ -57,6 +57,13 @@ def bootstrap(force: bool = False, gui_agent: bool = True) -> list[str]:
     there was nothing to do). Never raises: callers are install paths where a
     failure here must not break anything else.
     """
+    # Running from the DMG or an App Translocation mount: every path we would
+    # write into a plist disappears on eject or on the next launch, so register
+    # nothing and say what to do instead.
+    if bundle.is_ephemeral():
+        return ["Lunchbot is running from a disk image. Drag it to your "
+                "Applications folder and open it from there."]
+
     # A current stamp isn't quite enough: a machine can sit at this version with
     # an older LaunchAgent (one that reopens the app the moment it's quit), so
     # the plist is checked too whenever we're responsible for it.
@@ -94,6 +101,50 @@ def bootstrap(force: bool = False, gui_agent: bool = True) -> list[str]:
 
     if complete:
         _write_stamp()
+    return actions
+
+
+def provision_from_bundle() -> list[str]:
+    """Self-provision when the menu-bar app is a dragged-in Lunchbot.app.
+
+    Homebrew installs get their wiring from `lunchbot bootstrap` in the
+    installer script and from auto() on the way into any CLI command. A
+    dragged .app gets neither: double-clicking it enters gui.app.main()
+    directly, so without this nothing ever registers the login agent and the
+    menu-bar icon would not come back after a reboot.
+
+    Only touches the login agent — the ordering schedule is restored separately
+    from the user's config, and re-registering it here would fire launchctl
+    twice on every launch for no reason.
+
+    Best-effort and quiet: this runs on a background thread while the menu is
+    already up, and a failure must never take the app down with it.
+    """
+    if bundle.running_bundle() is None:
+        return []                      # Homebrew/dev install — auto() covers it
+    if bundle.is_ephemeral():
+        return ["running from a disk image; drag Lunchbot to Applications"]
+
+    actions: list[str] = []
+    if bundle.install_cli_shim() is not None:
+        actions.append(f"linked {bundle.SHIM_PATH}")
+
+    # Only when the plist is missing or stale. Rewriting it means `bootout`,
+    # which would kill this very process if launchd is what started us — and
+    # when the plist is already current there is nothing to gain by doing so.
+    #
+    # On a genuine first run we are a Finder double-click, not a launchd job,
+    # so the bootout below hits a job that isn't running. `bootstrap` then
+    # starts the job, that copy loses the singleton race, exits 0, and
+    # KeepAlive/SuccessfulExit leaves it registered but not running. We keep
+    # the menu bar; launchd takes over at the next login.
+    try:
+        if not agent.gui_plist_is_current():
+            agent.install_gui_agent()
+            actions.append("menu-bar app registered (starts at login)")
+    except Exception as e:  # noqa: BLE001 — launchctl/RuntimeError, all non-fatal
+        logging.info("bundle provisioning: could not register login agent: %s", e)
+
     return actions
 
 

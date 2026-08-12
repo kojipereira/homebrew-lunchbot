@@ -14,21 +14,31 @@ import plistlib
 import subprocess
 from pathlib import Path
 
-from . import paths
+from . import bundle, paths
 from .config import Config
 
 LABEL = "com.lunchbot.agent"          # daily ordering agent
 GUI_LABEL = "com.lunchbot.gui"        # menu-bar app (see gui_agent helpers below)
 
-# Prefer the stable Homebrew symlink (survives `brew upgrade`); fall back to the
+# A self-contained Lunchbot.app wins when there is one: its executables are the
+# only ones that keep working with no Homebrew on the machine, and the path is
+# stable because the bundle is the unit that gets replaced on upgrade. Failing
+# that, the stable Homebrew symlink (survives `brew upgrade`), then the
 # hand-installed launcher for the non-Homebrew dev path.
-def _resolve_launcher(name: str) -> Path:
+#
+# `name` and `bundle_exe` differ because the bundle's GUI executable has to be
+# CFBundleExecutable ("Lunchbot"), while Homebrew installs a console script
+# called "lunchbot-gui".
+def _resolve_launcher(name: str, bundle_exe: str) -> Path:
+    exe = bundle.executable(bundle_exe)
+    if exe is not None:
+        return exe
     brew = Path("/opt/homebrew/bin") / name
     return brew if brew.exists() else paths.HOME / ".local" / "bin" / name
 
 
-LAUNCHER = _resolve_launcher("lunchbot")
-GUI_LAUNCHER = _resolve_launcher("lunchbot-gui")
+LAUNCHER = _resolve_launcher("lunchbot", bundle.CLI_EXE)
+GUI_LAUNCHER = _resolve_launcher("lunchbot-gui", bundle.GUI_EXE)
 PLIST_PATH = paths.HOME / "Library" / "LaunchAgents" / f"{LABEL}.plist"
 GUI_PLIST_PATH = paths.HOME / "Library" / "LaunchAgents" / f"{GUI_LABEL}.plist"
 STDOUT_LOG = paths.HOME / "Library" / "Logs" / "lunchbot.stdout.log"
@@ -102,8 +112,14 @@ def install_agent(cfg: Config) -> None:
     PLIST_PATH.write_bytes(generate_plist_bytes(cfg))
     dom = _domain()
     _launchctl("bootout", f"{dom}/{LABEL}")            # ignore "not loaded"
+    # `enable` MUST come before `bootstrap`. launchd refuses to bootstrap a
+    # disabled job — it fails with the gloriously unhelpful "Bootstrap failed:
+    # 5: Input/output error" — so with the old ordering, pause_agent() (which
+    # disables) left the schedule permanently unresumable: bootstrap raised
+    # before the enable that was meant to undo the disable ever ran. The user
+    # saw "Couldn't resume", or, from _restore_schedule_quietly, nothing at all.
+    _launchctl("enable", f"{dom}/{LABEL}")
     _launchctl("bootstrap", dom, str(PLIST_PATH), check=True)
-    _launchctl("enable", f"{dom}/{LABEL}")             # undo any prior disable
     logging.info("agent installed: %d fire times × %d weekdays",
                  len(fire_times(cfg)), len(cfg.weekdays))
 
@@ -182,13 +198,14 @@ def generate_gui_plist_bytes() -> bytes:
 def install_gui_agent() -> None:
     if not GUI_LAUNCHER.exists():
         raise RuntimeError(f"GUI launcher not found at {GUI_LAUNCHER}; "
-                           "install via Homebrew or run install.sh")
+                           "drag Lunchbot.app to Applications, install via "
+                           "Homebrew, or run install.sh")
     GUI_PLIST_PATH.parent.mkdir(parents=True, exist_ok=True)
     GUI_PLIST_PATH.write_bytes(generate_gui_plist_bytes())
     dom = _domain()
     _launchctl("bootout", f"{dom}/{GUI_LABEL}")
+    _launchctl("enable", f"{dom}/{GUI_LABEL}")   # before bootstrap — see install_agent
     _launchctl("bootstrap", dom, str(GUI_PLIST_PATH), check=True)
-    _launchctl("enable", f"{dom}/{GUI_LABEL}")
 
 
 def uninstall_gui_agent() -> None:

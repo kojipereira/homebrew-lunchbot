@@ -10,6 +10,7 @@ import os
 import sys
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 
 logging.disable(logging.CRITICAL)  # the swallow paths log expected tracebacks
 
@@ -151,6 +152,51 @@ M.main(["resume"])
 app._restore_schedule_quietly()
 check([c[0] for c in A.resume_agent.calls] == [(FAKE_CFG,), (FAKE_CFG,)],
       "CLI resume is honoured by the next menu-bar app launch")
+
+# --- enable must precede bootstrap ------------------------------------------
+# launchd refuses to bootstrap a *disabled* job, failing with "Bootstrap
+# failed: 5: Input/output error". With enable after bootstrap, pause_agent()
+# (which disables) left the schedule permanently unresumable — bootstrap raised
+# before the enable meant to undo it ever ran. Nothing about this ordering is
+# visible until someone pauses, so pin it here.
+#
+# Unlike everything above, this drives the real install_agent/install_gui_agent,
+# which WRITE A PLIST. Their paths hang off paths.HOME, which the XDG variables
+# at the top of this file do not redirect — so without pointing them at the temp
+# dir, running this suite would overwrite the live ~/Library/LaunchAgents plists
+# of whoever ran it. Redirected last, and left that way, so nothing after can
+# reach the real ones either.
+A.PLIST_PATH = Path(_tmp) / "com.lunchbot.agent.plist"
+A.GUI_PLIST_PATH = Path(_tmp) / "com.lunchbot.gui.plist"
+
+# install_agent derives fire times from the config, so it needs more than
+# FAKE_CFG's bare object().
+SCHED_CFG = SimpleNamespace(
+    lunch_time="12:00",
+    weekdays=[1, 2, 3, 4, 5],
+    favorites=[SimpleNamespace(lead_minutes=30)],
+)
+
+for label, install in (
+    (A.LABEL, lambda: A.install_agent(SCHED_CFG)),
+    (A.GUI_LABEL, A.install_gui_agent),
+):
+    calls = []
+    A._launchctl = lambda *a, **k: calls.append(a) or type("R", (), {"returncode": 0})()
+    saved_exists = Path.exists
+    try:
+        Path.exists = lambda self: True          # launcher presence check
+        install()
+    finally:
+        Path.exists = saved_exists
+    verbs = [c[0] for c in calls]
+    check("enable" in verbs and "bootstrap" in verbs
+          and verbs.index("enable") < verbs.index("bootstrap"),
+          f"{label}: enable precedes bootstrap (a disabled job can't bootstrap)")
+
+check(A.PLIST_PATH.is_file() and A.GUI_PLIST_PATH.is_file()
+      and str(A.PLIST_PATH).startswith(_tmp),
+      "the plists this test wrote landed in the temp dir, not ~/Library/LaunchAgents")
 
 print()
 if failures:

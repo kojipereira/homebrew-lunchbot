@@ -36,6 +36,12 @@ cd "$ROOT"
 
 TARBALL="dist/lunchbot-$VER.tar.gz"
 INSTALLER="dist/Lunchbot-Installer-$VER.tar.gz"
+# The self-contained drag-to-Applications build. A third channel, not a
+# replacement: everyone already on `brew install` keeps upgrading through the
+# formula, which still needs $TARBALL.
+DMG="dist/Lunchbot-$VER.dmg"
+
+ASSETS="$TARBALL $INSTALLER $DMG"
 
 # Whatever python3 is around — never a hardcoded Homebrew path.
 PY="$(command -v python3.13 || command -v python3)" || {
@@ -55,7 +61,8 @@ has_asset() {
 # so replacing a published source tarball would break `brew install` for people
 # who already have the old checksum.
 upload_missing_assets() {
-  for f in "$TARBALL" "$INSTALLER"; do
+  # shellcheck disable=SC2086 # ASSETS is a deliberate word-split path list.
+  for f in $ASSETS; do
     name="$(basename "$f")"
     if has_asset "$name"; then
       echo "  · $name already attached — leaving it alone"
@@ -68,7 +75,8 @@ upload_missing_assets() {
 
 verify_assets() {
   missing=""
-  for f in "$TARBALL" "$INSTALLER"; do
+  # shellcheck disable=SC2086 # ASSETS is a deliberate word-split path list.
+  for f in $ASSETS; do
     name="$(basename "$f")"
     has_asset "$name" || missing="$missing $name"
   done
@@ -78,7 +86,7 @@ verify_assets() {
     echo "Re-run: ./release.sh $VER --assets-only" >&2
     exit 1
   fi
-  echo "verified: v$VER carries both assets"
+  echo "verified: v$VER carries all three assets"
 }
 
 # ---- --assets-only: repair an existing release ------------------------------
@@ -88,6 +96,7 @@ if [ "$MODE" = "--assets-only" ]; then
     echo "no release v$VER to repair" >&2; exit 1
   }
   sh build.sh "$VER" >/dev/null
+  sh build-app.sh "$VER" >/dev/null
   upload_missing_assets
   verify_assets
   exit 0
@@ -138,6 +147,11 @@ sh build.sh >/dev/null
 SHA="$(shasum -a 256 "$TARBALL" | awk '{print $1}')"
 echo "built $TARBALL  sha256=$SHA"
 
+# 2b. Build the self-contained .app + DMG. Downloads a pinned CPython on the
+#     first run (cached in .cache/ afterwards), so this step needs network.
+sh build-app.sh "$VER" >/dev/null
+echo "built $DMG"
+
 # 3. Patch the formula url + sha256 before committing, so the tagged tree is the
 #    tree the release actually describes.
 "$PY" - "$VER" "$SHA" "$REPO" <<'PY'
@@ -161,9 +175,16 @@ git push -u origin "$BR"
 # 5. Cut the release, tagging that branch commit (see the note at the top), with
 #    both assets: the pip-installable source tarball for Homebrew and the
 #    friendly double-click installer bundle for everyone else.
-gh release create "v$VER" "$TARBALL" "$INSTALLER" --repo "$REPO" --target "$BR" \
+# shellcheck disable=SC2086 # ASSETS is a deliberate word-split path list.
+gh release create "v$VER" $ASSETS --repo "$REPO" --target "$BR" \
   --title "lunchbot $VER" \
-  --notes "Install: brew install kojipereira/lunchbot/lunchbot — or download **Lunchbot-Installer-$VER.tar.gz** below, expand it, and double-click \"Install Lunchbot.command\". Requires dd-cli (the installer explains how to get it)." >/dev/null
+  --notes "**Easiest:** download **Lunchbot-$VER.dmg** below, open it, and drag Lunchbot to Applications. Nothing else to install — the app carries its own Python.
+
+Or \`brew install kojipereira/lunchbot/lunchbot\`, or download **Lunchbot-Installer-$VER.tar.gz**, expand it and double-click \"Install Lunchbot.command\".
+
+All paths still require dd-cli — run \`lunchbot doctor\` for steps.
+
+_The .dmg is not notarized yet, so the first launch needs approval in System Settings → Privacy & Security._" >/dev/null
 echo "created release v$VER (tagged $BR)"
 
 # 6. Never exit 0 on a half-populated release.

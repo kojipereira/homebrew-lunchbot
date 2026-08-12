@@ -87,10 +87,36 @@ def _info_plist(icon: bool = True) -> bytes:
 
 def install_app(app_dir=None) -> "paths.Path":
     """Create <app_dir>/Lunchbot.app and return its path. Overwrites any prior
-    copy so it's safe to re-run after an upgrade."""
+    copy so it's safe to re-run after an upgrade.
+
+    No-op when we're already running from a self-contained bundle (the
+    drag-to-Applications build): that copy *is* the app, it carries its own
+    interpreter, and writing a stub next to it would leave the user with two
+    Lunchbot.apps — the second of which only knows how to look for a Homebrew
+    install that may not exist. Instead we make sure `lunchbot` is reachable
+    from a terminal, which a dragged .app otherwise isn't.
+    """
     import shutil
 
+    from . import bundle
+
+    running = bundle.running_bundle()
+    if running is not None and app_dir is None:
+        bundle.install_cli_shim()
+        return running
+
     base = (app_dir or DEFAULT_APP_DIR)
+
+    # Never overwrite a self-contained bundle with the stub. Someone who is not
+    # an admin cannot drag to /Applications without a password, so ~/Applications
+    # is a normal place for the real app to land — and that is exactly where this
+    # function writes. Left unguarded, the next CLI command from a Homebrew
+    # install alongside it would replace 60 MB of working app with a shell
+    # script, and the user would never know why Lunchbot stopped opening.
+    existing = base / f"{APP_NAME}.app"
+    if bundle._is_bundle(existing):
+        bundle.install_cli_shim()
+        return existing
     app = base / f"{APP_NAME}.app"
     macos = app / "Contents" / "MacOS"
     macos.mkdir(parents=True, exist_ok=True)
@@ -115,6 +141,17 @@ def install_app(app_dir=None) -> "paths.Path":
 def uninstall_app(app_dir=None) -> bool:
     """Remove Lunchbot.app. Returns True if it existed."""
     import shutil
+
+    from . import bundle
+
+    # Drop the terminal shim first — a symlink into a bundle we're about to
+    # delete is worse than no shim at all.
+    try:
+        if bundle.SHIM_PATH.is_symlink():
+            bundle.SHIM_PATH.unlink()
+    except OSError:
+        pass
+
     app = (app_dir or DEFAULT_APP_DIR) / f"{APP_NAME}.app"
     if app.exists():
         shutil.rmtree(app)
