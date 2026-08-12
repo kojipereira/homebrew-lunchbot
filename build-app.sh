@@ -45,11 +45,37 @@ PY_URL="https://github.com/astral-sh/python-build-standalone/releases/download/$
 # would mean no two releases share a GUI stack.
 DEPS="rumps==0.4.0 pyobjc-core==12.2.1 pyobjc-framework-Cocoa==12.2.1"
 
-# Ad-hoc ("-") unless a real Developer ID is supplied. Signing is what makes
-# notarization possible later; until then this at least gives the bundle one
-# coherent signature instead of a pile of separately-signed dylibs, which is
-# its own source of launch failures on Apple Silicon.
+# Ad-hoc ("-") unless a real Developer ID is supplied. Ad-hoc still gives the
+# bundle one coherent signature instead of a pile of separately-signed dylibs,
+# which is its own source of launch failures on Apple Silicon.
+#
+#   LUNCHBOT_SIGN_IDENTITY="Developer ID Application: You (TEAMID)"
+#
+# List what you have with:  security find-identity -v -p codesigning
 SIGN_IDENTITY="${LUNCHBOT_SIGN_IDENTITY:--}"
+
+# Notarization is skipped unless this names a notarytool keychain profile.
+# Create one once, interactively (it prompts for the secret, which is why this
+# script never sees it and nothing sensitive is stored in the repo):
+#
+#   xcrun notarytool store-credentials lunchbot \
+#     --apple-id you@example.com --team-id TEAMID
+#
+# then build with:  LUNCHBOT_SIGN_IDENTITY=… LUNCHBOT_NOTARY_PROFILE=lunchbot ./build-app.sh
+NOTARY_PROFILE="${LUNCHBOT_NOTARY_PROFILE:-}"
+
+# Ad-hoc signatures cannot be notarized, and hardened runtime + a secure
+# timestamp are both required by the notary service.
+if [ "$SIGN_IDENTITY" = "-" ]; then
+  if [ -n "$NOTARY_PROFILE" ]; then
+    echo "ERROR: LUNCHBOT_NOTARY_PROFILE is set but LUNCHBOT_SIGN_IDENTITY is not." >&2
+    echo "Notarization requires a real Developer ID Application certificate." >&2
+    exit 1
+  fi
+  SIGN_FLAGS="--timestamp=none"
+else
+  SIGN_FLAGS="--options runtime --timestamp"
+fi
 
 # Contents/MacOS/<these>. Must match bundle.APP_EXE / GUI_EXE / CLI_EXE.
 # No two may differ by case alone — macOS is case-insensitive and the second
@@ -232,29 +258,100 @@ contents, version = Path(sys.argv[1]), sys.argv[2]
     # Menu-bar accessory: no Dock icon while running, still double-clickable.
     "LSUIElement": True,
     "LSMinimumSystemVersion": "11.0",
+    # Shown in the TCC prompt the first time ui.py drives System Events for an
+    # order-confirmation dialog. Without this key macOS denies the Apple Event
+    # outright instead of asking, and the dialog never appears.
+    "NSAppleEventsUsageDescription":
+        "Lunchbot uses System Events to show the dialog that confirms your "
+        "lunch order before it is placed.",
 }))
 PY
 
 # --- 6. sign -----------------------------------------------------------------
 # Inner Mach-O first, bundle last: signing the bundle seals what is inside it,
 # so anything signed afterwards invalidates the outer signature.
+# Hardened runtime forbids things an embedded CPython does routinely, so a
+# Developer ID build needs these four or it breaks in ways that only show up on
+# someone else's Mac:
+#
+#   disable-library-validation      CPython dlopen()s its extension modules
+#                                   (.so under lib-dynload, all of pyobjc) at
+#                                   import time. Without this they refuse to
+#                                   load and the menu bar never starts.
+#   allow-unsigned-executable-memory / allow-jit
+#                                   libffi, which pyobjc is built on, writes
+#                                   and executes trampolines at runtime.
+#   automation.apple-events         ui.py drives `System Events` through
+#                                   osascript for the order-confirmation
+#                                   dialogs. Hardened runtime blocks Apple
+#                                   Events without this, so lunch would fail to
+#                                   confirm with no visible reason.
+#
+# Ad-hoc builds skip entitlements entirely — they have no hardened runtime to
+# poke holes in.
+ENTITLEMENTS="$OUT/.entitlements.plist"
+cat > "$ENTITLEMENTS" <<'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>com.apple.security.cs.disable-library-validation</key><true/>
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key><true/>
+  <key>com.apple.security.cs.allow-jit</key><true/>
+  <key>com.apple.security.automation.apple-events</key><true/>
+</dict>
+</plist>
+EOF
+if [ "$SIGN_IDENTITY" != "-" ]; then
+  SIGN_FLAGS="$SIGN_FLAGS --entitlements $ENTITLEMENTS"
+fi
+
 echo "signing (identity: $SIGN_IDENTITY)"
+# shellcheck disable=SC2086 # SIGN_FLAGS is a deliberate word-split flag list.
 find "$PYHOME" \( -name '*.dylib' -o -name '*.so' -o -name 'python3.*' \) -type f -print0 |
-  xargs -0 -n1 codesign --force --timestamp=none --sign "$SIGN_IDENTITY" 2>/dev/null || true
+  xargs -0 -n1 codesign --force $SIGN_FLAGS --sign "$SIGN_IDENTITY" 2>/dev/null || true
 
 # Only CFBundleExecutable is covered by the bundle seal. The other two shims in
 # Contents/MacOS are nested code and need their own signatures first, or sealing
 # fails with "code object is not signed at all".
-codesign --force --timestamp=none --sign "$SIGN_IDENTITY" "$C/MacOS/$CLI_EXE"
-codesign --force --timestamp=none --sign "$SIGN_IDENTITY" "$C/MacOS/$GUI_EXE"
+# shellcheck disable=SC2086
+codesign --force $SIGN_FLAGS --sign "$SIGN_IDENTITY" "$C/MacOS/$CLI_EXE"
+# shellcheck disable=SC2086
+codesign --force $SIGN_FLAGS --sign "$SIGN_IDENTITY" "$C/MacOS/$GUI_EXE"
 
-codesign --force --timestamp=none --sign "$SIGN_IDENTITY" "$APP" || {
+# shellcheck disable=SC2086
+codesign --force $SIGN_FLAGS --sign "$SIGN_IDENTITY" "$APP" || {
   echo "  ERROR: could not sign the bundle." >&2
   exit 1
 }
 codesign --verify --strict "$APP" &&
   echo "  signature verifies" ||
   { echo "  ERROR: signature does not verify" >&2; exit 1; }
+
+# --- 6b. notarize the app ----------------------------------------------------
+# Staple the .app before it goes into the DMG, then staple the DMG too. Doing
+# only the DMG leaves the app unstapled once dragged out, so its first launch
+# needs a network round-trip to Apple — and fails closed on a plane or a
+# locked-down network. Two submissions, both artifacts self-sufficient offline.
+if [ -n "$NOTARY_PROFILE" ]; then
+  echo "notarizing the app (this waits on Apple; typically a few minutes)"
+  ZIP="$OUT/.Lunchbot-notarize.zip"
+  rm -f "$ZIP"
+  # ditto, not zip: it preserves the extended attributes the shim signatures
+  # live in, and the resource forks codesign relies on.
+  ditto -c -k --keepParent "$APP" "$ZIP"
+  xcrun notarytool submit "$ZIP" --keychain-profile "$NOTARY_PROFILE" --wait || {
+    echo "  ERROR: notarization failed. Inspect it with:" >&2
+    echo "    xcrun notarytool log <submission-id> --keychain-profile $NOTARY_PROFILE" >&2
+    exit 1
+  }
+  rm -f "$ZIP"
+  xcrun stapler staple "$APP" || {
+    echo "  ERROR: could not staple the app." >&2
+    exit 1
+  }
+  echo "  app notarized and stapled"
+fi
 
 # --- 7. DMG ------------------------------------------------------------------
 # Staging dir with the app beside a symlink to /Applications — the drag-here
@@ -270,6 +367,30 @@ rm -rf "$STAGE"
 
 [ -s "$DMG" ] || { echo "ERROR: $DMG is missing or empty" >&2; exit 1; }
 
+# The DMG is its own distributable and needs its own ticket — the app's does not
+# cover the container the user actually downloads.
+if [ -n "$NOTARY_PROFILE" ]; then
+  echo "notarizing the DMG"
+  xcrun notarytool submit "$DMG" --keychain-profile "$NOTARY_PROFILE" --wait || {
+    echo "  ERROR: DMG notarization failed. Inspect it with:" >&2
+    echo "    xcrun notarytool log <submission-id> --keychain-profile $NOTARY_PROFILE" >&2
+    exit 1
+  }
+  xcrun stapler staple "$DMG" || {
+    echo "  ERROR: could not staple the DMG." >&2
+    exit 1
+  }
+
+  # The check that actually matters. `codesign --verify` only says the
+  # signature is intact; this asks the policy engine the question a user's Mac
+  # will ask on first launch, and is the difference between "signed" and
+  # "opens without a trip through System Settings".
+  echo "verifying Gatekeeper acceptance"
+  spctl -a -vvv -t install "$APP" 2>&1 | sed 's/^/  /'
+  xcrun stapler validate "$APP" 2>&1 | sed 's/^/  /'
+  xcrun stapler validate "$DMG" 2>&1 | sed 's/^/  /'
+fi
+
 echo
 echo "built $APP"
 echo "      $(du -sh "$APP" | awk '{print $1}') on disk"
@@ -277,9 +398,23 @@ echo "built $DMG"
 echo "      $(du -sh "$DMG" | awk '{print $1}') compressed"
 echo
 if [ "$SIGN_IDENTITY" = "-" ]; then
-  echo "NOTE: this build is ad-hoc signed, not notarized. Downloaded from a"
-  echo "browser it will be quarantined, and macOS 15+ sends the user through"
-  echo "System Settings > Privacy & Security to approve it. To ship without"
-  echo "that, set LUNCHBOT_SIGN_IDENTITY to a Developer ID Application cert"
-  echo "and notarize the DMG with notarytool."
+  echo "NOTE: ad-hoc signed, NOT notarized. Downloaded from a browser this is"
+  echo "quarantined, and macOS 15+ sends the user through System Settings >"
+  echo "Privacy & Security to approve it. To ship without that:"
+  echo
+  echo "  1. Install a Developer ID Application cert (developer.apple.com >"
+  echo "     Certificates). Confirm with: security find-identity -v -p codesigning"
+  echo "  2. Store notary credentials once (prompts for the secret):"
+  echo "       xcrun notarytool store-credentials lunchbot \\"
+  echo "         --apple-id you@example.com --team-id TEAMID"
+  echo "  3. Rebuild:"
+  echo "       LUNCHBOT_SIGN_IDENTITY=\"Developer ID Application: … (TEAMID)\" \\"
+  echo "       LUNCHBOT_NOTARY_PROFILE=lunchbot ./build-app.sh"
+elif [ -z "$NOTARY_PROFILE" ]; then
+  echo "NOTE: signed with a Developer ID but NOT notarized (no"
+  echo "LUNCHBOT_NOTARY_PROFILE set), so Gatekeeper still blocks it on first"
+  echo "launch. Signing alone is not enough — the ticket is what clears it."
+else
+  echo "Notarized and stapled. This opens on a colleague's Mac with no"
+  echo "Gatekeeper prompt, and works offline on first launch."
 fi
