@@ -16,82 +16,70 @@ DoorDash CLI.
 
 - **Apple Silicon Mac.** `dd-cli` ships arm64-only.
 - **`dd-cli`, which you install yourself.** lunchbot does not bundle or download
-  it — see [Getting dd-cli](#getting-dd-cli).
-- **Homebrew.** Python is installed for you as a formula dependency.
+  it — see [Getting dd-cli](#getting-dd-cli) below.
+- **Homebrew — only for Options B and C.** Option A (drag to Applications) is
+  self-contained: no Homebrew, no separate Python.
 
 ## Install
 
-### Requirement: dd-cli
+### Getting dd-cli
 
-lunchbot needs the DoorDash CLI. You bring your own copy:
+lunchbot needs the DoorDash CLI, which you bring yourself:
 
-Download `dd-cli` for Apple Silicon https://github.com/doordash-oss/doordash-cli/releases
+1. It's in beta — request access with [this form](https://docs.google.com/forms/d/e/1FAIpQLScMG2Echsfy14CT_6MAHVsW6Hw6oNkz1BOiOj5RIzvcMRRrpA/viewform?edit2=2_ABaOnucwosS05Lsnk_JM-8rgIwZXhjjd2iOcdDNp3dt2JBw8LLQztu_dnCm3mR3G7A).
+2. Download `dd-cli` for Apple Silicon from the [releases page](https://github.com/doordash-oss/doordash-cli/releases).
 
-dd-cli is on beta to request access fill this form: https://docs.google.com/forms/d/e/1FAIpQLScMG2Echsfy14CT_6MAHVsW6Hw6oNkz1BOiOj5RIzvcMRRrpA/viewform?edit2=2_ABaOnucwosS05Lsnk_JM-8rgIwZXhjjd2iOcdDNp3dt2JBw8LLQztu_dnCm3mR3G7A
+### Option A — drag to Applications (recommended)
 
-### Option A — drag to Applications (no terminal, nothing else to install)
+1. Download **`Lunchbot-<version>.dmg`** from
+   [Releases](https://github.com/kojipereira/homebrew-lunchbot/releases).
+2. Open it and drag **Lunchbot** onto **Applications**.
+3. Eject the disk image, then open Lunchbot from **Applications** — not from
+   the mounted image, whose path disappears on eject and would leave nothing
+   scheduled.
 
-1. Go to the [**Releases**](https://github.com/kojipereira/homebrew-lunchbot/releases)
-   page and download **`Lunchbot-<version>.dmg`**.
-2. Open it and drag **Lunchbot** onto the **Applications** shortcut.
-3. Open Lunchbot from Applications.
+Self-contained: no Homebrew, no separate Python. First launch puts the 🥪 in
+your menu bar, opens Preferences, registers itself to start at login, and
+links `~/.local/bin/lunchbot` for the terminal.
 
-The app is self-contained — it carries its own Python, so it needs no Homebrew
-and no separate runtime. On first launch it puts the 🥪 in your menu bar, opens
-Preferences so you can pick restaurants, and registers itself to start at login.
-It also links `~/.local/bin/lunchbot` so the CLI works in a terminal.
-
-> **First launch:** this build isn't notarized yet, so macOS blocks it once.
-> Open **System Settings → Privacy & Security**, scroll to the message about
-> Lunchbot, and click **Open Anyway**. (Control-clicking the app no longer works
-> as a bypass — Apple removed that in macOS 15.)
-
-> **Open it from Applications, not from the disk image.** Run straight from the
-> mounted DMG and Lunchbot won't schedule anything, because every path it would
-> record disappears when you eject. It tells you so rather than half-installing.
+> **macOS blocks the first launch** (not notarized yet): open **System
+> Settings → Privacy & Security**, find the message about Lunchbot, and click
+> **Open Anyway**. Control-clicking no longer bypasses this on macOS 15+.
 
 ### Option B — Homebrew (terminal)
 
 ```sh
 brew install kojipereira/lunchbot/lunchbot
-```
-
-(Shorthand for `brew tap kojipereira/lunchbot && brew install lunchbot`.) Then:
-
-```sh
 lunchbot setup
 ```
 
-That's the whole thing. The first lunchbot command after an install or upgrade
-also drops a **Lunchbot.app** in `~/Applications` (double-click it, drag it to
-the Dock) and registers the 🥪 menu-bar app so it starts now and at every login
-— you don't run `install-app` or `install-gui-agent` yourself.
+(`kojipereira/lunchbot/lunchbot` taps and installs in one step.) The first
+`lunchbot` command after an install or upgrade also drops a **Lunchbot.app**
+in `~/Applications` and registers the 🥪 menu-bar app to start at login —
+nothing else to run by hand.
 
-### Option C — download & double-click an installer
+### Option C — double-click installer (no terminal, needs Homebrew)
 
-1. Download **`Lunchbot-Installer-<version>.tar.gz`** from the Releases page.
-2. Double-click it in Finder to expand it into a **`Lunchbot Installer`** folder.
-3. Double-click **`Install Lunchbot.command`** inside.
-   (If macOS says it can't be opened, right-click it → **Open** → **Open**.)
+1. Download **`Lunchbot-Installer-<version>.tar.gz`** from Releases and
+   double-click it in Finder to expand the **`Lunchbot Installer`** folder.
+2. Double-click **`Install Lunchbot.command`** inside (right-click → **Open**
+   if macOS blocks it).
 
-This is the older no-terminal path. It installs via Homebrew under the hood, so
-it needs Homebrew present. To remove it later, double-click
-**`Uninstall Lunchbot.command`** in the same folder.
+Installs via Homebrew under the hood — the older no-terminal path, superseded
+by Option A for anyone who doesn't already use Homebrew.
 
 ## Updates
 
-If you installed the **.dmg**, download the newer one and drag it over the old
-copy, replacing it. (There's no in-app auto-update yet — see
-[Notes for maintainers](#notes-for-maintainers).)
+**Installed the `.dmg`?** Download the newer one and drag it over the old
+copy — there's no in-app auto-update yet.
 
-If you installed via **Homebrew**:
+**Installed via Homebrew?**
 
 ```sh
-brew update
-brew upgrade lunchbot
+brew update && brew upgrade lunchbot
 ```
 
-Either way your config, schedule, and login are untouched. The menu-bar app
+Either way, your config, schedule, and login are untouched — the menu-bar app
 relaunches on the new version automatically.
 
 
@@ -138,9 +126,9 @@ Run `lunchbot doctor` first — it checks all of the below.
 - **Certificate/TLS errors** on a corporate network (Zscaler/Netskope-style
   proxy): set `DD_CLI_CA_BUNDLE` to your CA PEM. lunchbot passes it through to
   the scheduled agent.
-- **Preferences window won't open.** It needs pyobjc, which comes with rumps in
-  the Homebrew venv — `lunchbot doctor` says if it's missing. Meanwhile
-  `lunchbot setup` covers the same ground in the terminal.
+- **Preferences window won't open.** Needs pyobjc — bundled with both the
+  `.dmg` app and the Homebrew install; `lunchbot doctor` says if it's missing.
+  Meanwhile `lunchbot setup` covers the same ground in the terminal.
 - **Menu-bar icon or Lunchbot.app missing.** `lunchbot bootstrap` re-creates both.
 - **The app reopens itself seconds after you quit it.** An older LaunchAgent —
   it was registered with `KeepAlive: true`, which relaunches on *any* exit,
@@ -161,8 +149,14 @@ Run `lunchbot doctor` first — it checks all of the below.
 
 ## Uninstall
 
-Double-click **`Uninstall Lunchbot.command`** (from the installer folder), or in a
-terminal:
+**Installed the `.dmg`?**
+
+```sh
+lunchbot uninstall-agent && lunchbot uninstall-gui-agent && lunchbot uninstall-app
+```
+
+**Installed via Homebrew or the installer `.command`?** Double-click
+**`Uninstall Lunchbot.command`** (from the installer folder), or:
 
 ```sh
 lunchbot uninstall-agent && lunchbot uninstall-gui-agent
@@ -172,162 +166,7 @@ brew uninstall lunchbot
 Config/state/logs under `~/.config`, `~/.local/state`, and `~/Library/Logs`
 persist unless you remove them.
 
-## Notarizing a release
+## For maintainers
 
-Without a notarization ticket, macOS 15+ blocks the downloaded `.dmg` and sends
-every user through System Settings → Privacy & Security. **Signing alone does
-not fix this** — the ticket is what clears Gatekeeper.
-
-Nothing secret ever goes near the repo or CI. The certificate lives in your
-login Keychain, the notary credential in a Keychain profile, and `release.sh`
-already runs locally on a Mac. Only the `.dmg` and the tarballs are uploaded.
-
-**One-time setup**
-
-1. Create a **Developer ID Application** certificate at
-   [developer.apple.com](https://developer.apple.com/account/resources/certificates)
-   (Keychain Access → Certificate Assistant → Request a Certificate… produces
-   the CSR it asks for), download it, and double-click to install. Confirm:
-
-   ```sh
-   security find-identity -v -p codesigning
-   ```
-
-2. Store a notary credential in the Keychain. This prompts for an
-   app-specific password ([appleid.apple.com](https://appleid.apple.com) →
-   Sign-In and Security → App-Specific Passwords), so run it yourself:
-
-   ```sh
-   xcrun notarytool store-credentials lunchbot --apple-id you@example.com --team-id TEAMID
-   ```
-
-**Every release**
-
-```sh
-LUNCHBOT_SIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)" LUNCHBOT_NOTARY_PROFILE=lunchbot ./build-app.sh
-```
-
-That switches signing to hardened runtime + secure timestamp, notarizes and
-staples the `.app`, builds the DMG around the stapled app, then notarizes and
-staples the DMG too. Both get stapled deliberately: ticket only on the DMG and
-the app needs a network round-trip to Apple on first launch, which fails closed
-on a locked-down network. Each submission waits on Apple — usually a few
-minutes.
-
-`build-app.sh` refuses to start if `LUNCHBOT_NOTARY_PROFILE` is set without an
-identity, since an ad-hoc signature can never be notarized.
-
-**Hardened runtime needs four entitlements**, all generated by `build-app.sh`.
-They are not optional garnish — each one corresponds to something this app does:
-
-| Entitlement | Why |
-|---|---|
-| `disable-library-validation` | CPython `dlopen()`s its extension modules (`lib-dynload/*.so`, all of pyobjc) at import. Without it they refuse to load and the menu bar never starts. |
-| `allow-unsigned-executable-memory`, `allow-jit` | libffi, which pyobjc is built on, writes and executes trampolines at runtime. |
-| `automation.apple-events` | `ui.py` drives `System Events` via osascript for the order-confirmation dialog. Hardened runtime blocks Apple Events without it, so orders would fail to confirm with no visible reason. |
-
-`Info.plist` also carries `NSAppleEventsUsageDescription`; without that key
-macOS denies the Apple Event outright instead of prompting.
-
-If a submission is rejected, get the reason with:
-
-```sh
-xcrun notarytool log <submission-id> --keychain-profile lunchbot
-```
-
-## Notes for maintainers
-
-- The **ordering path imports no GUI dependencies** (no rumps, no AppKit) — a
-  menu-bar or preferences problem can never stop lunch from being ordered.
-  `gui/prefs.py` is a stub that lazily imports `gui/prefs_window.py`, which is
-  the only module that touches AppKit at import time.
-- Two launchd agents: `com.lunchbot.agent` (the daily order) and `com.lunchbot.gui`
-  (the menu-bar app). `agent._resolve_launcher` targets, in order: the executables
-  inside a self-contained `Lunchbot.app`, the stable `/opt/homebrew/bin` symlinks
-  (so `brew upgrade` never rewrites a plist), then `~/.local/bin`.
-- **Three distribution channels, one codebase.** `build.sh` makes the
-  pip-installable tarball the Homebrew formula consumes plus the double-click
-  installer; `build-app.sh` makes the self-contained `.app` and its `.dmg`.
-  `release.sh` builds and attaches all three.
-- **The self-contained bundle** (`build-app.sh`) embeds a pinned relocatable
-  CPython from python-build-standalone, matching the formula's `python@3.13`.
-  It is *not* py2app: lunchbot needs two entry points out of one bundle — the
-  menu-bar GUI and the `lunchbot run` CLI that launchd fires at lunchtime — and
-  an embedded interpreter makes both three-line shell shims. Layout gotchas
-  worth knowing before you move anything:
-  - The interpreter lives in `Contents/Resources/python`, **not**
-    `Contents/Frameworks`. `codesign` enforces framework layout on everything
-    under `Frameworks` and rejects a CPython tree outright.
-  - `bundle.py` identifies a real bundle by the embedded interpreter, so the
-    Homebrew-installed `Lunchbot.app` — a shell stub that execs `lunchbot-gui` —
-    is correctly *not* treated as one.
-  - `bundle.is_ephemeral()` refuses to register agents when the app is running
-    from a mounted DMG or an App Translocation path, since those paths are gone
-    by the next launch.
-  - A dragged `.app` enters `gui/app.py:main()` directly and never passes through
-    the CLI's `bootstrap.auto()`, so `bootstrap.provision_from_bundle()` — called
-    from the GUI's background startup thread — is the only thing that registers
-    its login agent.
-  - Builds are ad-hoc signed by default, which Gatekeeper still blocks. See
-    **Notarizing a release** below.
-- The GUI agent keys `KeepAlive` on `SuccessfulExit: false`, so a clean quit is
-  final and only a crash relaunches. `bootstrap.py` compares the installed plist
-  against `agent.generate_gui_plist_bytes()` and rewrites it when they differ —
-  a kickstart alone would leave an older, unquittable plist in place forever.
-- Only one menu-bar app and one preferences window can run, whether started by
-  launchd, `Lunchbot.app` or the CLI. `singleton.py` is an advisory `flock` under
-  the state dir: the kernel releases it however the process dies, so there is no
-  stale lock and no pid to reap. A losing menu-bar copy forwards its `--prefs`
-  request and exits **0** — a non-zero exit would make launchd relaunch it.
-- Config is TOML via `tomllib`; plists are generated with `plistlib`.
-- **The app icon** is authored in Icon Composer at `assets/lunchbot.icon` and
-  compiled to `src/lunchbot/resources/Lunchbot.icns`, which `appbundle.py` copies
-  into `Lunchbot.app/Contents/Resources`. Nothing on a user's Mac rasterizes it —
-  the `.icns` is committed. After editing the `.icon`, regenerate with
-  `pip install pillow cairosvg && ./tools/build-icon.py` (the script reads
-  `icon.json`: gradient fill, stacked SVG layers, group shadow, squircle mask,
-  Apple's 824-in-1024 art box) and commit the result. A bundle without it still
-  launches; it just shows Finder's generic icon, which `lunchbot doctor` flags.
-- Tests are stdlib-only scripts — `PYTHONPATH=src python3.13 tests/test_*.py`.
-  `test_prefs_window.py` runs the AppKit window against a PyObjC-shaped stub, so
-  it works on any machine. That one is worth keeping green: PyObjC publishes every
-  undecorated method of an NSObject subclass as a selector (underscores become
-  colons) and refuses an arity mismatch *at import*, so one helper missing
-  `@objc.python_method` breaks the whole window rather than one code path.
-  `test_appbundle.py` checks the `.icns` is present and well-formed and that
-  `install_app` wires it into the bundle; `test_gui_launch.py` covers the launch
-  lifecycle (quit stays quit, a stale plist is rewritten, one instance at a time,
-  `--prefs` reaching the app); `test_bundle.py` covers self-contained-bundle
-  detection against fabricated bundles in a temp dir — including that the
-  Homebrew stub is not mistaken for one and that `install_app` doesn't write a
-  second app beside a real bundle.
-- Distribution is a self-contained Homebrew tap at
-  [`kojipereira/homebrew-lunchbot`](https://github.com/kojipereira/homebrew-lunchbot):
-  the source, `Formula/lunchbot.rb`, and the release live in one repo.
-- Cutting a release is one command: **`./release.sh X.Y.Z`** — it bumps the
-  version everywhere, builds both tarballs, patches the formula's `url` +
-  `sha256`, commits that on a `release-vX.Y.Z` branch, creates the GitHub release
-  **tagged on that branch commit**, and opens a PR (merge it to publish). Refresh
-  the rumps/pyobjc pins with `brew update-python-resources ./Formula/lunchbot.rb`
-  when those change.
-- `build.sh` emits two artifacts: `lunchbot-<ver>.tar.gz` (source, consumed by the
-  formula) and `Lunchbot-Installer-<ver>.tar.gz` (the double-click installer for
-  Option A). The installer's `.command` files shell out to `brew`, so Homebrew and
-  a public tap are still required. `./build.sh <version>` stamps an explicit
-  version through the staged copy, which is how an old tag gets backfilled.
-- **Every release must carry both assets.** Three things enforce it: `build.sh`
-  fails if either artifact is missing, `release.sh` verifies the published release
-  before exiting 0, and `.github/workflows/release-assets.yml` re-checks on every
-  tag push and published release — attaching whatever is absent. Repair an old
-  release with `./release.sh <ver> --assets-only`, or Actions → *Release assets* →
-  *Run workflow* → the tag. Nothing ever re-uploads an asset that already exists:
-  the formula pins the source tarball's `sha256` and rebuilds aren't
-  byte-identical.
-- Tag the *release branch*, not `main`. Tagging main before the bump PR merges is
-  what left `v1.1.4` and `v1.1.5` pointing at trees that still said `1.1.2` and
-  `1.1.3`; `release.sh` now passes `--target "$BR"` to avoid it.
-- Point users to dd-cli via `LUNCHBOT_DDCLI_URL` (or edit `DDCLI_GET_URL` in
-  `src/lunchbot/ddcli.py`).
-- **The tap repo must be public** for others to `brew install` it — a private
-  release asset needs a GitHub token.
-- `install.sh`/`uninstall.sh` remain a non-Homebrew fallback for dev machines.
+Release process, code signing/notarization, and internals worth knowing before
+touching the build now live in [MAINTAINERS.md](MAINTAINERS.md).
