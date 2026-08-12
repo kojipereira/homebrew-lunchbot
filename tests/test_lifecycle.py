@@ -20,7 +20,10 @@ os.environ["XDG_CONFIG_HOME"] = str(Path(_tmp) / "config")
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
+from lunchbot import __main__ as M         # noqa: E402
 from lunchbot import agent as A            # noqa: E402
+from lunchbot import bootstrap             # noqa: E402
+from lunchbot import paths                 # noqa: E402
 from lunchbot import state as S            # noqa: E402
 from lunchbot.config import ConfigError    # noqa: E402
 from lunchbot.gui import app               # noqa: E402
@@ -108,6 +111,46 @@ A._launchctl = lambda *a, **k: calls.append(a) or type("R", (), {"returncode": 0
 REAL_STOP_AGENT()
 check(calls == [("bootout", f"gui/{os.getuid()}/{A.LABEL}")],
       "stop_agent only boots out (no disable), unlike pause_agent")
+
+# --- `lunchbot pause` / `lunchbot resume` record the same intent as the GUI ---
+# Without this the CLI and the menu-bar app disagree: a CLI pause would be
+# undone by the app's next launch-time restore, and a CLI resume would be
+# re-paused the next time the app quits.
+paths.setup_logging = lambda: None       # keep the real ~/Library log untouched
+bootstrap.auto = lambda cmd: None        # no provisioning side effects in tests
+M.load_config = lambda: FAKE_CFG         # `resume` config-loads before installing
+
+A.pause_agent = Spy()
+S.set_schedule_paused(False)
+check(M.main(["pause"]) == 0, "`lunchbot pause` exits 0")
+check(len(A.pause_agent.calls) == 1, "`lunchbot pause` disables the launchd job")
+check(S.load_state()["schedule_paused"] is True,
+      "`lunchbot pause` persists schedule_paused=True (survives an app relaunch)")
+
+A.resume_agent = Spy()
+S.set_schedule_paused(True)   # as any prior pause, CLI or GUI, would leave it
+check(M.main(["resume"]) == 0, "`lunchbot resume` exits 0")
+check([c[0] for c in A.resume_agent.calls] == [(FAKE_CFG,)],
+      "`lunchbot resume` reinstalls the job from the current config")
+check(S.load_state()["schedule_paused"] is False,
+      "`lunchbot resume` persists schedule_paused=False (app stops re-pausing)")
+
+# CLI pause from an active schedule, then app relaunch: the pause has to survive.
+A.pause_agent = Spy()
+A.resume_agent = Spy()
+S.set_schedule_paused(False)
+M.main(["pause"])
+app._restore_schedule_quietly()
+check(len(A.resume_agent.calls) == 0,
+      "CLI pause survives a menu-bar app relaunch (no silent un-pause)")
+
+# CLI resume from a paused schedule, then app relaunch: restore has to happen.
+A.resume_agent = Spy()
+S.set_schedule_paused(True)
+M.main(["resume"])
+app._restore_schedule_quietly()
+check([c[0] for c in A.resume_agent.calls] == [(FAKE_CFG,), (FAKE_CFG,)],
+      "CLI resume is honoured by the next menu-bar app launch")
 
 print()
 if failures:
