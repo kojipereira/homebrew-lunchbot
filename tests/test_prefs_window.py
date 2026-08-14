@@ -291,6 +291,12 @@ class _Cal:
         return types.SimpleNamespace(hour=lambda: h, minute=lambda: m)
 
 
+class _ProcessInfo:
+    @staticmethod
+    def processInfo():
+        return V()
+
+
 class _Comps:
     @staticmethod
     def alloc():
@@ -336,6 +342,7 @@ _module("AppKit", [
 _module("Foundation", [], extra={
     "NSCalendar": _Cal, "NSCalendarUnitHour": 32, "NSCalendarUnitMinute": 64,
     "NSDateComponents": _Comps, "NSObject": NSObject, "NSTimer": _Timer,
+    "NSProcessInfo": _ProcessInfo,
     "NSMakeRect": lambda x, y, w, h: (x, y, w, h),
     "NSMakeSize": lambda w, h: (w, h),
     "NSURL": Cls("NSURL"),

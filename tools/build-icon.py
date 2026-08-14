@@ -1,19 +1,24 @@
 #!/usr/bin/env python3
-"""Compose assets/lunchbot.icon into src/lunchbot/resources/Lunchbot.icns.
+"""Build src/lunchbot/resources/Lunchbot.icns from assets/lunchbot-icon.png.
 
-Lunchbot.app is hand-rolled (see lunchbot/appbundle.py), so nothing compiles the
-Icon Composer bundle for us the way Xcode would. This script does that job once,
-on a developer machine, and the resulting .icns is committed — installs must not
+Lunchbot.app is hand-rolled (see lunchbot/appbundle.py), so nothing compiles an
+icon for us the way Xcode would. This script does that job once, on a
+developer machine, and the resulting .icns is committed — installs must not
 need a rasterizer.
 
     pip install pillow cairosvg
     ./tools/build-icon.py            # rewrites the .icns (+ --preview for a PNG)
 
-It reads icon.json the way Icon Composer does: the gradient `fill` paints the
-whole 1024pt canvas, `groups[].layers` stack bottom-to-top over it with the
-group's soft shadow behind them, and the canvas is masked to the squircle. The
-macOS wrapper (824pt of art centred in a 1024pt canvas, plus the ambient
-shadow) matches Apple's app-icon template.
+The source is a flat, edge-to-edge 1024x1024 render (no transparency) — this
+script's only job is clipping it to the squircle Apple's Dock expects; the
+render itself carries its own background, depth and shadow.
+
+`--source` also accepts an Icon Composer `.icon` bundle (a directory with an
+icon.json) for the older gradient-fill + vector-layers authoring style, kept
+for reference: the gradient `fill` paints the whole 1024pt canvas,
+`groups[].layers` stack bottom-to-top over it with the group's soft shadow
+behind them, and the result is inset to Apple's 824pt macOS art box (plus an
+ambient shadow) before the squircle mask.
 """
 
 from __future__ import annotations
@@ -26,7 +31,7 @@ from io import BytesIO
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-SOURCE = ROOT / "assets" / "lunchbot.icon"
+SOURCE = ROOT / "assets" / "lunchbot-icon.png"
 DEST = ROOT / "src" / "lunchbot" / "resources" / "Lunchbot.icns"
 
 CANVAS = 1024          # Icon Composer authoring canvas
@@ -121,6 +126,19 @@ def render_svg(path: Path, size: int) -> "Image.Image":
     return Image.open(BytesIO(png)).convert("RGBA")
 
 
+def compose_raster(source: Path) -> "Image.Image":
+    """Clip a flat, full-bleed source render to the squircle. No inset or
+    synthesized shadow: the art already carries its own background and depth,
+    unlike the hand-drawn vector layers `compose()` builds up from scratch."""
+    from PIL import Image
+
+    image = Image.open(source).convert("RGBA")
+    if image.size != (CANVAS, CANVAS):
+        image = image.resize((CANVAS, CANVAS), Image.LANCZOS)
+    image.putalpha(squircle_mask(CANVAS))
+    return image
+
+
 def compose(source: Path) -> "Image.Image":
     """Render the .icon bundle to a 1024x1024 macOS-ready RGBA image."""
     from PIL import Image, ImageFilter
@@ -191,24 +209,35 @@ def build_icns(image: "Image.Image") -> bytes:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--source", type=Path, default=SOURCE, help="path to the .icon bundle")
+    ap.add_argument("--source", type=Path, default=SOURCE,
+                     help="path to the source image, or an Icon Composer .icon bundle")
     ap.add_argument("--out", type=Path, default=DEST, help="path to the .icns to write")
     ap.add_argument("--preview", type=Path, help="also write a flattened PNG here")
     args = ap.parse_args()
 
     try:
-        import cairosvg  # noqa: F401
         from PIL import Image  # noqa: F401
     except ImportError:
-        print("this script needs pillow and cairosvg:  pip install pillow cairosvg",
-              file=sys.stderr)
+        print("this script needs pillow:  pip install pillow", file=sys.stderr)
         return 1
 
-    if not (args.source / "icon.json").exists():
-        print(f"no icon.json under {args.source}", file=sys.stderr)
-        return 1
+    if args.source.is_dir():
+        if not (args.source / "icon.json").exists():
+            print(f"no icon.json under {args.source}", file=sys.stderr)
+            return 1
+        try:
+            import cairosvg  # noqa: F401
+        except ImportError:
+            print("Icon Composer sources need cairosvg too:  pip install cairosvg",
+                  file=sys.stderr)
+            return 1
+        image = compose(args.source)
+    else:
+        if not args.source.is_file():
+            print(f"no source image at {args.source}", file=sys.stderr)
+            return 1
+        image = compose_raster(args.source)
 
-    image = compose(args.source)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_bytes(build_icns(image))
     print(f"wrote {args.out} ({args.out.stat().st_size:,} bytes)")

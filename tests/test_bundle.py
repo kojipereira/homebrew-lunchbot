@@ -48,7 +48,7 @@ def make_bundle(root: Path, name="Lunchbot.app", embedded=True) -> Path:
 # macOS is case-insensitive by default, so Contents/MacOS/lunchbot and
 # Contents/MacOS/Lunchbot are one file and the second write wins. That shipped:
 # the app built, signed and launched, and double-clicking it ran the setup
-# wizard in a terminal instead of putting the sandwich in the menu bar.
+# wizard in a terminal instead of putting the bot icon in the menu bar.
 EXES = (B.APP_EXE, B.GUI_EXE, B.CLI_EXE)
 check(len({e.lower() for e in EXES}) == len(EXES),
       f"the three bundle executables {EXES} differ by more than case")

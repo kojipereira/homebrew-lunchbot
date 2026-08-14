@@ -42,7 +42,7 @@ from AppKit import (NSAlert, NSApp, NSApplication,
                     NSWorkspace)
 from Foundation import (NSCalendar, NSCalendarUnitHour, NSCalendarUnitMinute,
                         NSDateComponents, NSMakeRect, NSMakeSize, NSObject,
-                        NSTimer, NSURL)
+                        NSProcessInfo, NSTimer, NSURL)
 
 from .. import agent, appbundle, ddcli, paths, setup_core
 from ..config import (DEFAULT_LEAD_TIERS, Config, DesktopConfirmCfg, Favorite,
@@ -968,10 +968,10 @@ def _dock_icon_image():
     the image exactly as given — it does not apply the usual squircle mask —
     so without this the Dock icon has hard square corners. Only worth doing
     here: this window runs with Regular activation policy (a real Dock/
-    Cmd+Tab presence, shown as the underlying Python interpreter's own
-    identity, not Lunchbot.app's — see appbundle.py's module docstring for
-    why); the menu-bar app itself is an Accessory-policy app with no Dock
-    icon at all, so the same fix there would have nothing to attach to."""
+    Cmd+Tab presence) started straight from the interpreter rather than a
+    bundled .app, so nothing else supplies an icon; the menu-bar app itself
+    is an Accessory-policy app with no Dock icon at all, so the same fix
+    there would have nothing to attach to."""
     if not appbundle.ICON_SOURCE.is_file():
         return None
     src = NSImage.alloc().initWithContentsOfFile_(str(appbundle.ICON_SOURCE))
@@ -990,6 +990,11 @@ def _dock_icon_image():
 
 def run() -> int:
     global _controller
+    # Launched as `python3 -m lunchbot.gui.prefs`, not a bundled .app, so
+    # without this the process's name everywhere the OS shows it — the Dock
+    # tooltip, Cmd+Tab, Force Quit, the bold app-menu title — is the
+    # interpreter's own name ("Python"/"python3.13") rather than Lunchbot's.
+    NSProcessInfo.processInfo().setProcessName_("Lunchbot")
     app = NSApplication.sharedApplication()
     app.setActivationPolicy_(NSApplicationActivationPolicyRegular)
     icon = _dock_icon_image()

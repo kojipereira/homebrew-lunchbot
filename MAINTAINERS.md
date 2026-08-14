@@ -111,14 +111,16 @@ xcrun notarytool log <submission-id> --keychain-profile lunchbot
   stale lock and no pid to reap. A losing menu-bar copy forwards its `--prefs`
   request and exits **0** — a non-zero exit would make launchd relaunch it.
 - Config is TOML via `tomllib`; plists are generated with `plistlib`.
-- **The app icon** is authored in Icon Composer at `assets/lunchbot.icon` and
-  compiled to `src/lunchbot/resources/Lunchbot.icns`, which `appbundle.py` copies
-  into `Lunchbot.app/Contents/Resources`. Nothing on a user's Mac rasterizes it —
-  the `.icns` is committed. After editing the `.icon`, regenerate with
-  `pip install pillow cairosvg && ./tools/build-icon.py` (the script reads
-  `icon.json`: gradient fill, stacked SVG layers, group shadow, squircle mask,
-  Apple's 824-in-1024 art box) and commit the result. A bundle without it still
-  launches; it just shows Finder's generic icon, which `lunchbot doctor` flags.
+- **The app icon** source is the flat, full-bleed 1024x1024 render at
+  `assets/lunchbot-icon.png`, compiled to `src/lunchbot/resources/Lunchbot.icns`,
+  which `appbundle.py` copies into `Lunchbot.app/Contents/Resources`. Nothing on
+  a user's Mac rasterizes it — the `.icns` is committed. After replacing the
+  PNG, regenerate with `pip install pillow && ./tools/build-icon.py` (the script
+  just clips the render to Apple's squircle — the art already carries its own
+  background and depth) and commit the result. `--source` also still accepts an
+  Icon Composer `.icon` bundle (gradient fill + stacked SVG layers) for the
+  older hand-drawn authoring style. A bundle without an icon still launches; it
+  just shows Finder's generic icon, which `lunchbot doctor` flags.
 - Tests are stdlib-only scripts — `PYTHONPATH=src python3.13 tests/test_*.py`.
   `test_prefs_window.py` runs the AppKit window against a PyObjC-shaped stub, so
   it works on any machine. That one is worth keeping green: PyObjC publishes every

@@ -74,7 +74,7 @@ TO INSTALL
      If macOS says it can't be opened, right-click it → Open → Open.
   2. Follow the prompts in the Terminal window that opens.
 
-It installs Lunchbot (via Homebrew), adds a sandwich icon to your menu bar,
+It installs Lunchbot (via Homebrew), adds a bot icon to your menu bar,
 and opens Preferences so you can pick your restaurants.
 
 REQUIREMENTS
