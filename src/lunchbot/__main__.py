@@ -105,6 +105,9 @@ def _cmd_status(_args) -> int:
     upcoming = {d: s for d, s in overrides.items() if d >= date.today().isoformat()}
     if upcoming:
         print("upcoming overrides: " + ", ".join(f"{d}={upcoming[d]}" for d in sorted(upcoming)))
+    pick = state.get("daily_pick") or {}
+    if pick.get("date") == date.today().isoformat():
+        print(f"today's pick: {pick.get('store')} (Yolo mode)")
     return 0
 
 

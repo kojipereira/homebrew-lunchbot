@@ -108,7 +108,33 @@ fires at `lunch_time − lead_minutes` for each distinct lead tier, on your chos
 weekdays. Example: lunch 12:00, a slow kitchen at 60 min → fires 11:00; a fast
 one at 15 min → fires 11:45. At each fire, lunchbot considers only favorites
 whose tier matches the current time, and **stops for the day once an order is
-placed** — so you never get two dialogs.
+placed** — so you never get two dialogs. Between tiers you arbitrate: **Skip
+time slot** passes on the 11:00 offer and waits for 11:45.
+
+### Yolo mode
+
+Turn off "Confirm each order" (Preferences → Order confirmation → **Yolo mode**)
+and there is no dialog to arbitrate with — so lunchbot decides up front instead.
+At the first fire of the day it draws **one restaurant at random from your whole
+list**, remembers it in `state.json`, and then does nothing until that
+restaurant's own tier fires. Pick the 15-minute one on a day you also have a
+60-minute one and the 11:00 fire passes quietly; the order goes in at 11:45.
+
+That equal-odds draw is the point: ordering at whichever tier happened to fire
+first would mean your slow-kitchen favorites won every single day and the fast
+ones never came up at all.
+
+If the day's pick turns out not to be orderable (closed, sold out, over your
+price cap), lunchbot quietly falls back to another restaurant in the same tier.
+Only when the whole tier is unorderable does it stop and ask — Yolo turns off
+the *confirmation* dialog, not the error one, so a failure is still put in front
+of you with **Try again / Skip time slot / Skip today**. Leave that dialog
+unanswered and it times out to the least destructive option: it re-draws from
+the tiers still ahead and tries again there, or skips the day if this was the
+last tier. `lunchbot status` shows today's pick.
+
+Once an order goes in, you get the same "Lunchbot: order placed" alert the
+confirm path shows — so a Yolo order still tells you it happened.
 
 ## Troubleshooting
 

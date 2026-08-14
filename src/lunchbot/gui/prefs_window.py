@@ -693,8 +693,9 @@ class PrefsController(NSObject):
                                  (not prev.desktop_confirm.enabled) if prev else False)
         self.yolo_cb.setFrame_(_rect(indent, 54, iw, 18, card4_h))
         card4.addSubview_(self.yolo_cb)
-        card4.addSubview_(_pos(_small("On = orders are placed automatically, "
-                                      "no confirmation dialog.", secondary=True),
+        card4.addSubview_(_pos(_small("On = one restaurant picked at random each day and "
+                                      "ordered at its own time, no dialog.",
+                                      secondary=True, truncate=True),
                                indent, 76, iw, 16, card4_h))
 
         # ---- Footer: help link ------------------------------------------------

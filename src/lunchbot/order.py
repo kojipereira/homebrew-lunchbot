@@ -351,9 +351,12 @@ def submit_and_record(cfg: Config, state: dict, fav: Favorite, cart_uuid: str,
         if final_status != "pending":
             break
 
+    when = "pickup" if fulfillment == "PICKUP" else "delivery"
     budget_line = f"\nCharged to: {budget.get('name','?')}" if budget else ""
     if final_status == "successful":
-        show_alert("Lunchbot: order placed", f"{fav.store} — ${total_cents/100:.2f}{budget_line}")
+        show_alert("Lunchbot: order placed",
+                   f"{fav.store} — ${total_cents/100:.2f} ({when}){budget_line}\n\n"
+                   "DoorDash confirmed it. Track it in the DoorDash app.")
     elif final_status == "action_required":
         show_alert("Lunchbot: verification needed",
                    f"{fav.store} — ${total_cents/100:.2f}{budget_line}\n\n"
@@ -364,6 +367,11 @@ def submit_and_record(cfg: Config, state: dict, fav: Favorite, cart_uuid: str,
                    f"{fav.store} — ${total_cents/100:.2f}{budget_line}\n\n"
                    + (err or "DoorDash marked it failed after submit."))
     else:
-        show_alert(f"Lunchbot: status={final_status}",
-                   f"{fav.store} — ${total_cents/100:.2f}{budget_line}")
+        # Usually still "pending" — DoorDash routinely takes longer than the 60s
+        # of polling above to settle. The order IS placed; lead with that rather
+        # than with a status word the user has no way to act on.
+        show_alert("Lunchbot: order sent",
+                   f"{fav.store} — ${total_cents/100:.2f} ({when}){budget_line}\n\n"
+                   f"DoorDash hasn't confirmed it yet (status: {final_status}). "
+                   "Check the DoorDash app in a minute.")
     logging.info("done: %s (%s)", fav.store, final_status)
