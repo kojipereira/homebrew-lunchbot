@@ -32,6 +32,10 @@ def load_state() -> dict:
     # the schedule when it closes and restores it on launch — but only back to
     # this last-known intent, so a deliberate pause survives a quit/reopen.
     data.setdefault("schedule_paused", False)
+    # {"date": iso, "store": name} — Yolo mode's restaurant for that day, drawn
+    # once and reused by every fire of the day (see run.daily_pick). One entry,
+    # not a map: it's stamped with its date and means nothing the next morning.
+    data.setdefault("daily_pick", {})
     return data
 
 
@@ -81,3 +85,20 @@ def clear_override(iso_date: str) -> bool:
 
 def get_override(iso_date: str) -> str | None:
     return load_state()["overrides"].get(iso_date)
+
+
+# ---- Yolo mode's restaurant of the day -------------------------------------
+# These two take the caller's state dict instead of loading a fresh one (the
+# pattern add_skip_date/set_override use). `run` holds a state dict for the
+# whole run and hands it to submit_and_record, which saves it — a load/save
+# helper would write the pick and then have it overwritten by that save.
+def get_daily_pick(state: dict, iso_date: str) -> str | None:
+    """The store already drawn for iso_date, or None (including when the stored
+    pick belongs to an earlier day)."""
+    entry = state.get("daily_pick") or {}
+    return entry.get("store") if entry.get("date") == iso_date else None
+
+
+def set_daily_pick(state: dict, iso_date: str, store: str) -> None:
+    state["daily_pick"] = {"date": iso_date, "store": store}
+    save_state(state)

@@ -141,7 +141,8 @@ def setup() -> int:
     work_benefits = ask_bool("Require a company work-benefit budget (fail without one)?",
                              prev.work_benefits if prev else True)
     confirm_before_ordering = ask_bool(
-        "Confirm each order before it's placed? (No = Yolo mode, orders go through automatically)",
+        "Confirm each order before it's placed? (No = Yolo mode: one restaurant "
+        "picked at random each day, ordered at its own time)",
         prev.desktop_confirm.enabled if prev else True)
 
     # Weekday selection
