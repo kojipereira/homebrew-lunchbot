@@ -177,7 +177,7 @@ def generate_gui_plist_bytes() -> bytes:
         env["DD_CLI_CA_BUNDLE"] = ca
     d = {
         "Label": GUI_LABEL,
-        # No --prefs here: starting at login means "put the sandwich in the menu
+        # No --prefs here: starting at login means "put the bot icon in the menu
         # bar", never "open a window in someone's face".
         "ProgramArguments": [str(GUI_LAUNCHER)],
         "EnvironmentVariables": env,

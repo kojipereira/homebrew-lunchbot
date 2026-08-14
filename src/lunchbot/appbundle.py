@@ -29,7 +29,7 @@ ICON_FILE = f"{APP_NAME}.icns"
 # falling back to `lunchbot gui`, and finally a helpful alert if nothing's found.
 #
 # --prefs throughout: opening the app from Finder, Launchpad or the Dock means
-# "show me Lunchbot", so it puts the sandwich in the menu bar and opens
+# "show me Lunchbot", so it puts the bot icon in the menu bar and opens
 # Preferences. If the menu-bar app is already running, that copy keeps the icon
 # and this one only opens the window (see gui/app.py's instance lock).
 #

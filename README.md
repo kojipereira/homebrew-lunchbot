@@ -38,7 +38,7 @@ lunchbot needs the DoorDash CLI, which you bring yourself:
    the mounted image, whose path disappears on eject and would leave nothing
    scheduled.
 
-Self-contained: no Homebrew, no separate Python. First launch puts the 🥪 in
+Self-contained: no Homebrew, no separate Python. First launch puts the 🤖 in
 your menu bar, opens Preferences, registers itself to start at login, and
 links `~/.local/bin/lunchbot` for the terminal.
 
@@ -55,7 +55,7 @@ lunchbot setup
 
 (`kojipereira/lunchbot/lunchbot` taps and installs in one step.) The first
 `lunchbot` command after an install or upgrade also drops a **Lunchbot.app**
-in `~/Applications` and registers the 🥪 menu-bar app to start at login —
+in `~/Applications` and registers the 🤖 menu-bar app to start at login —
 nothing else to run by hand.
 
 ### Option C — double-click installer (no terminal, needs Homebrew)
@@ -160,7 +160,7 @@ Run `lunchbot doctor` first — it checks all of the below.
   it was registered with `KeepAlive: true`, which relaunches on *any* exit,
   including a deliberate quit. `lunchbot bootstrap` rewrites it, and any lunchbot
   command does that for you after an upgrade.
-- **Two sandwiches in the menu bar.** Also an older install: opening
+- **Two bot icons in the menu bar.** Also an older install: opening
   `Lunchbot.app` while the app was already running started a second copy. One
   `Quit` clears the extra; upgrading prevents it (only one copy can run now).
 - **Lunchbot.app shows a generic icon.** An app bundle created before the icon

@@ -2,7 +2,7 @@
 
 The menu-bar app has three legitimate starting points — the com.lunchbot.gui
 LaunchAgent at login, a double-click on Lunchbot.app, and `lunchbot gui` — and a
-second copy would put a second sandwich in the menu bar. Same for the
+second copy would put a second bot icon in the menu bar. Same for the
 preferences window, which is spawned as its own process every time.
 
 An advisory `flock` on a file under the state dir is the whole mechanism. The

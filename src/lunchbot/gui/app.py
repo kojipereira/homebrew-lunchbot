@@ -32,7 +32,7 @@ try:
 except ImportError:  # allows `import lunchbot.gui.app` without the dep
     rumps = None
 
-APP_TITLE = "🥪"  # emoji fallback if the icon can't be loaded — see LunchbotApp.__init__
+APP_TITLE = "🤖"  # emoji fallback if the icon can't be loaded — see LunchbotApp.__init__
 ICON_PATH = os.path.join(os.path.dirname(__file__), "icons", "lunchbot.pdf")
 DAY_NAMES = {1: "Mon", 2: "Tue", 3: "Wed", 4: "Thu", 5: "Fri", 6: "Sat", 7: "Sun"}
 
@@ -143,7 +143,7 @@ def main(argv=None) -> int:
     # otherwise go nowhere. Idempotent.
     paths.setup_logging()
 
-    # One menu bar, one sandwich. Login (launchd), Lunchbot.app and `lunchbot
+    # One menu bar, one bot icon. Login (launchd), Lunchbot.app and `lunchbot
     # gui` can all land here, so a copy that isn't the first steps aside rather
     # than adding a second icon — after handing over what the user asked for.
     global _instance_lock
@@ -153,7 +153,7 @@ def main(argv=None) -> int:
         if args.prefs:
             _spawn_prefs()          # the running icon stays; just show the window
         else:
-            print("Lunchbot is already running — look for 🥪 in the menu bar.",
+            print("Lunchbot is already running — look for 🤖 in the menu bar.",
                   file=sys.stderr)
         return 0                    # a clean exit: launchd must not relaunch us
 
@@ -161,6 +161,12 @@ def main(argv=None) -> int:
         print("The menu-bar app needs rumps (installed in the Homebrew venv). "
               "Run `lunchbot doctor` for details.", file=sys.stderr)
         return 1
+
+    # Launched as `python3 -m lunchbot.gui.app`, not a bundled .app, so without
+    # this the process's name in Activity Monitor and the Force Quit dialog is
+    # the interpreter's own name ("Python"/"python3.13") rather than Lunchbot's.
+    from Foundation import NSProcessInfo
+    NSProcessInfo.processInfo().setProcessName_("Lunchbot")
 
     # Stop the schedule whenever this process exits — covers the Quit menu item
     # (which also stops it up front) plus any other clean shutdown path.
@@ -209,7 +215,7 @@ def main(argv=None) -> int:
             self._startup_refresh = rumps.Timer(self._refresh_once, 2)
             self._startup_refresh.start()
             # Force menu-bar-accessory mode shortly after the run loop is up, so
-            # the 🥪 icon reliably appears top-right with no Dock icon — however
+            # the 🤖 icon reliably appears top-right with no Dock icon — however
             # the process was launched (double-click app, launchd, or CLI).
             self._policy_timer = rumps.Timer(self._ensure_accessory, 0.3)
             self._policy_timer.start()

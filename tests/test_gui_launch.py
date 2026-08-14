@@ -10,7 +10,7 @@ Covers the two bugs this file exists for:
      Quit menu item, and an upgrade only kickstarted the job, so a stale plist
      would have kept doing it forever.
   2. Lunchbot.app re-exec'd the menu-bar app with no arguments, so opening it
-     added a second sandwich to the menu bar and opened nothing.
+     added a second bot icon to the menu bar and opened nothing.
 """
 
 import logging
