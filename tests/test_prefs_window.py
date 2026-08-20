@@ -483,6 +483,15 @@ c.saveTick_(None)
 check(c.status.stringValue() == "dd-cli exploded",
       "failure message lands in the footer status")
 
+# A favorite that fails the live probe (closed, sold out, too far, etc.) used
+# to be silently dropped from the saved config with no indication in the UI.
+c._show_saving()
+c.events.put(("done", True, "", "/tmp/config.toml", [("Taco Place", "too far for pickup")]))
+c.saveTick_(None)
+check("Taco Place" in c.prog_msg.stringValue()
+      and "too far for pickup" in c.prog_msg.stringValue(),
+      "a favorite dropped by the live probe is surfaced, not silently discarded")
+
 # ------------------------------------------------- action selectors resolve
 print("\n--- target/action wiring ---")
 for target, sel in ACTIONS:
