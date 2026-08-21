@@ -872,17 +872,21 @@ class PrefsController(NSObject):
             verb = {"pickup": "pickup", "delivery": "delivery",
                     "either": "pickup or delivery"}[cfg.fulfillment]
             kept = []
+            dropped = []    # (store, reason) — favorites the live probe rejected
             for fav in cfg.favorites:
                 q.put(("text", f"Checking {fav.store} for {verb}…"))
-                keep, _note = setup_core.probe_favorite(cfg.fulfillment,
-                                                        cfg.lunch_time, fav,
-                                                        cfg.max_pickup_miles)
+                keep, note = setup_core.probe_favorite(cfg.fulfillment,
+                                                       cfg.lunch_time, fav,
+                                                       cfg.max_pickup_miles)
                 if keep:
                     kept.append(fav)
+                else:
+                    dropped.append((fav.store, note or "not available"))
                 done += 1
                 q.put(("value", done))
             if not kept:
-                q.put(("done", False, f"No restaurant supports {cfg.fulfillment}.", ""))
+                detail = "; ".join(f"{s} ({r})" for s, r in dropped)
+                q.put(("done", False, f"No restaurant supports {cfg.fulfillment}: {detail}", ""))
                 return
             cfg.favorites = kept
 
@@ -898,7 +902,7 @@ class PrefsController(NSObject):
             done += 1
             q.put(("value", done))
 
-            q.put(("done", True, "", str(paths.CONFIG_PATH)))
+            q.put(("done", True, "", str(paths.CONFIG_PATH), dropped))
         except Exception as e:  # noqa: BLE001 — surface in the UI, never crash
             q.put(("done", False, str(e), ""))
 
@@ -918,18 +922,25 @@ class PrefsController(NSObject):
                 self.prog_msg.setStringValue_(ev[1])
             elif kind == "done":
                 self._stop_timer()
-                self._finish_save(ev[1], ev[2], ev[3])
+                dropped = ev[4] if len(ev) > 4 else []
+                self._finish_save(ev[1], ev[2], ev[3], dropped)
                 return
 
     @objc.python_method
-    def _finish_save(self, ok, err, path):
+    def _finish_save(self, ok, err, path, dropped=None):
         if ok:
             self.prog_bar.setDoubleValue_(self.prog_bar.maxValue())
             self.prog_title.setStringValue_("Saved")
-            self.prog_msg.setStringValue_(
-                f"Your lunch preferences are set.\nConfig saved to {path}")
+            msg = f"Your lunch preferences are set.\nConfig saved to {path}"
+            msg_h, done_top = 44, self.prog_top + 116
+            if dropped:
+                names = "; ".join(f"{s} ({r})" for s, r in dropped)
+                msg += f"\n\nNot saved (didn't pass today's live check): {names}"
+                msg_h, done_top = 96, self.prog_top + 168
+            self.prog_msg.setFrame_(_rect(0, self.prog_top + 58, CONTENT_W, msg_h, CONTENT_H))
+            self.prog_msg.setStringValue_(msg)
             done = _push("Done", self, "cancel:", default=True)
-            done.setFrame_(_rect(CONTENT_W - 96, self.prog_top + 116, 96, 32, CONTENT_H))
+            done.setFrame_(_rect(CONTENT_W - 96, done_top, 96, 32, CONTENT_H))
             self.prog_page.addSubview_(done)
             self.window.makeFirstResponder_(done)
             self.save_btn.setHidden_(True)
